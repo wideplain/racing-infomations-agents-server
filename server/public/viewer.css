@@ -258,9 +258,16 @@ header {
 .weather-timeline-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .weather-timeline-value { min-width: 0; padding: 7px; border-radius: 7px; background: rgba(11, 16, 25, .42); color: var(--text); font-size: clamp(.9rem, 3.8vw, 1.15rem); font-weight: 800; text-align: center; white-space: nowrap; }
 .weather-timeline-value.rain { color: var(--accent-pitwall); }
+.weather-timeline-value.pop { font-variant-numeric: tabular-nums; }
+.weather-timeline-value.pop.medium { color: var(--tl-urgency-medium); }
+.weather-timeline-value.pop.high { color: var(--tl-urgency-high); }
+.weather-timeline-entry.raining { box-shadow: inset 3px 0 0 var(--accent-pitwall); }
 .weather-timeline-values.forecast { grid-template-columns: 1fr; }
 .weather-timeline-values.forecast .weather-timeline-value { font-size: clamp(1rem, 4.2vw, 1.25rem); }
-.weather-timeline-source { grid-column: 1 / -1; margin: 3px 0 0; color: var(--muted); font-size: .68rem; line-height: 1.45; }
+.weather-block-title { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 0; font-size: .95rem; letter-spacing: .04em; }
+.weather-block-title:first-child { margin-top: 0; }
+.weather-block-title span { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; }
+.weather-timeline-source { margin: 3px 0 0; color: var(--muted); font-size: .68rem; line-height: 1.45; }
 @media (max-width: 560px) { .weather-timeline-entry { grid-template-columns: 1fr; gap: 6px; } .weather-timeline-values { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 #routeSection #map {
   flex: 1 1 auto;

@@ -9,6 +9,7 @@ import type {
   WeatherSnapshotInput,
   WeatherSnapshotProvider,
   RainNowcastProvider,
+  PrecipitationOutlookProvider,
 } from "../weather/types.js";
 import { SerialQueue, QueueFullError } from "../analysis/queue.js";
 import {
@@ -217,6 +218,10 @@ function isRainNowcastProvider(value: unknown): value is RainNowcastProvider {
   return typeof (value as Partial<RainNowcastProvider> | undefined)?.getRainTimeline === "function";
 }
 
+function isPrecipitationOutlookProvider(value: unknown): value is PrecipitationOutlookProvider {
+  return typeof (value as Partial<PrecipitationOutlookProvider> | undefined)?.getPrecipitationOutlook === "function";
+}
+
 export function registerAnalyzeRoutes(
   app: FastifyInstance,
   db: DB,
@@ -260,32 +265,42 @@ export function registerAnalyzeRoutes(
   );
 
   // Future rain is a different data product from the stored weather snapshots. N2 contains the
-  // high-resolution nowcast forecast in five-minute steps through the next hour.
+  // high-resolution nowcast forecast in five-minute steps through the next hour, and the area
+  // forecast adds probability per six-hour slot; the two are returned side by side but never
+  // merged, because they do not share a granularity.
   app.get<{ Params: { id: string } }>(
     "/sessions/:id/weather-timeline",
     async (request, reply) => {
       const session = getSession(db, request.params.id);
       if (!session) return reply.code(404).send({ error: "not_found" });
       const location = getLatestLocation(db, session.id);
-      if (!location) return reply.send({ timeline: null, reason: "location_unavailable" });
+      if (!location) return reply.send({ timeline: null, precipitation: null, reason: "location_unavailable" });
       const ageMs = Date.now() - new Date(location.recorded_at).getTime();
       if (!Number.isFinite(ageMs) || ageMs > WEATHER_LOCATION_MAX_AGE_MS) {
-        return reply.send({ timeline: null, reason: "location_stale" });
+        return reply.send({ timeline: null, precipitation: null, reason: "location_stale" });
       }
-      if (!isRainNowcastProvider(weatherSnapshotProvider)) {
-        return reply.send({ timeline: null, reason: "weather_unavailable" });
+      const [timelineResult, precipitationResult] = await Promise.allSettled([
+        isRainNowcastProvider(weatherSnapshotProvider)
+          ? weatherSnapshotProvider.getRainTimeline(location.lat, location.lng)
+          : Promise.resolve(null),
+        isPrecipitationOutlookProvider(weather)
+          ? weather.getPrecipitationOutlook(location.lat, location.lng)
+          : Promise.resolve(null),
+      ]);
+      if (timelineResult.status === "rejected") {
+        request.log.warn({ err: timelineResult.reason }, "weather timeline unavailable");
       }
-      try {
-        const timeline = await weatherSnapshotProvider.getRainTimeline(location.lat, location.lng);
-        return reply.send({
-          timeline,
-          location: { latitude: location.lat, longitude: location.lng, recordedAt: location.recorded_at },
-          ...(timeline ? {} : { reason: "weather_unavailable" }),
-        });
-      } catch (error) {
-        request.log.warn({ err: error }, "weather timeline unavailable");
-        return reply.send({ timeline: null, reason: "weather_unavailable" });
+      if (precipitationResult.status === "rejected") {
+        request.log.warn({ err: precipitationResult.reason }, "precipitation outlook unavailable");
       }
+      const timeline = timelineResult.status === "fulfilled" ? timelineResult.value : null;
+      const precipitation = precipitationResult.status === "fulfilled" ? precipitationResult.value : null;
+      return reply.send({
+        timeline,
+        precipitation,
+        location: { latitude: location.lat, longitude: location.lng, recordedAt: location.recorded_at },
+        ...(timeline || precipitation ? {} : { reason: "weather_unavailable" }),
+      });
     }
   );
 

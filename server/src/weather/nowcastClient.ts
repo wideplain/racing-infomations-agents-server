@@ -72,16 +72,22 @@ export function isPngPixelOpaque(png: Uint8Array, pixelX: number, pixelY: number
     offset = end + 4;
   }
   if (!width || !height || pixelX < 0 || pixelY < 0 || pixelX >= width || pixelY >= height) return null;
-  if (bitDepth !== 8 || !idat.length) return null;
-  const bytesPerPixel = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 3 ? 1 : 0;
-  if (!bytesPerPixel) return null;
+  if (!idat.length) return null;
+  const samplesPerPixel = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 3 ? 1 : 0;
+  if (!samplesPerPixel) return null;
+  // JMA serves the observation tile as 8-bit RGBA but the forecast tiles as sub-byte indexed
+  // colour, so every palette bit depth PNG permits has to be read, not only 8.
+  if (colorType === 3 ? ![1, 2, 4, 8].includes(bitDepth) : bitDepth !== 8) return null;
   let raw: Uint8Array;
   try {
     raw = inflateSync(Buffer.concat(idat.map((chunk) => Buffer.from(chunk))));
   } catch {
     return null;
   }
-  const stride = width * bytesPerPixel;
+  const bitsPerPixel = samplesPerPixel * bitDepth;
+  // Filtering always works on whole bytes; anything under one byte per pixel filters with 1.
+  const bytesPerPixel = Math.max(1, bitsPerPixel >> 3);
+  const stride = Math.ceil((width * bitsPerPixel) / 8);
   if (raw.length < (stride + 1) * height) return null;
   const rows = new Uint8Array(stride * height);
   for (let row = 0; row < height; row++) {
@@ -104,13 +110,14 @@ export function isPngPixelOpaque(png: Uint8Array, pixelX: number, pixelY: number
       } else return null;
     }
   }
-  const index = pixelY * stride + pixelX * bytesPerPixel;
-  if (colorType === 6) return rows[index + 3] !== 0;
   if (colorType === 3) {
-    const paletteIndex = rows[index];
+    const bitOffset = pixelX * bitDepth;
+    const paletteIndex = (rows[pixelY * stride + (bitOffset >> 3)] >> (8 - bitDepth - (bitOffset & 7))) & ((1 << bitDepth) - 1);
     if (!palette || paletteIndex * 3 + 2 >= palette.length) return null;
     return (transparency?.[paletteIndex] ?? 255) !== 0;
   }
+  const index = pixelY * stride + pixelX * samplesPerPixel;
+  if (colorType === 6) return rows[index + 3] !== 0;
   return true; // RGB has no alpha channel.
 }
 

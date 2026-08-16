@@ -68,3 +68,21 @@ export interface RainNowcastTimeline {
 export interface RainNowcastProvider {
   getRainTimeline(latitude: number, longitude: number): Promise<RainNowcastTimeline | null>;
 }
+
+/** JMA publishes precipitation probability per six-hour slot, not per minute. It is kept apart
+ * from the nowcast timeline above so neither is ever redrawn at the other's granularity. */
+export interface PrecipitationProbabilitySlot {
+  startAt: string;
+  endAt: string;
+  probability: number;
+}
+
+export interface PrecipitationOutlook {
+  areaName: string;
+  reportedAt: string | null;
+  slots: PrecipitationProbabilitySlot[];
+}
+
+export interface PrecipitationOutlookProvider {
+  getPrecipitationOutlook(lat: number, lng: number): Promise<PrecipitationOutlook | null>;
+}

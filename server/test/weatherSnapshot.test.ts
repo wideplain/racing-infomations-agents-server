@@ -27,6 +27,35 @@ function rgbaPng(width: number, height: number, pixels: number[]): Uint8Array {
   ]);
 }
 
+/** JMA serves the forecast tiles as sub-byte indexed colour rather than the RGBA used for the
+ * observation tile, so the decoder has to read a palette index out of a packed byte. */
+function palettePng(width: number, height: number, bitDepth: number, indices: number[], alphas: number[]): Uint8Array {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = bitDepth;
+  ihdr[9] = 3; // indexed colour
+  const entries = alphas.length;
+  const stride = Math.ceil((width * bitDepth) / 8);
+  const rows: number[] = [];
+  for (let y = 0; y < height; y++) {
+    const packed = new Uint8Array(stride);
+    for (let x = 0; x < width; x++) {
+      const bitOffset = x * bitDepth;
+      packed[bitOffset >> 3] |= (indices[y * width + x] & ((1 << bitDepth) - 1)) << (8 - bitDepth - (bitOffset & 7));
+    }
+    rows.push(0, ...packed);
+  }
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("PLTE", Buffer.alloc(entries * 3, 90)),
+    chunk("tRNS", Buffer.from(alphas)),
+    chunk("IDAT", deflateSync(Buffer.from(rows))),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 describe("JMA current-weather clients", () => {
   afterEach(() => vi.useRealTimers());
 
@@ -38,6 +67,29 @@ describe("JMA current-weather clients", () => {
     const png = rgbaPng(2, 1, [0, 0, 0, 0, 10, 20, 30, 255]);
     expect(isPngPixelOpaque(png, 0, 0)).toBe(false);
     expect(isPngPixelOpaque(png, 1, 0)).toBe(true);
+  });
+
+  // Regression: the forecast tiles are 4-bit indexed colour, and rejecting every depth but 8
+  // made the whole rain timeline come back as "unavailable" while the tiles were fine.
+  it("reads rain out of sub-byte indexed-colour tiles, not only 8-bit RGBA", () => {
+    // Palette entry 0 is transparent (no rain), entry 1..3 are painted.
+    const alphas = [0, 255, 255, 255];
+    const fourBit = palettePng(4, 2, 4, [0, 1, 0, 2, 3, 0, 0, 0], alphas);
+    expect(isPngPixelOpaque(fourBit, 0, 0)).toBe(false);
+    expect(isPngPixelOpaque(fourBit, 1, 0)).toBe(true);
+    expect(isPngPixelOpaque(fourBit, 3, 0)).toBe(true);
+    expect(isPngPixelOpaque(fourBit, 0, 1)).toBe(true);
+    expect(isPngPixelOpaque(fourBit, 2, 1)).toBe(false);
+
+    const twoBit = palettePng(4, 1, 2, [0, 3, 0, 1], alphas);
+    expect(isPngPixelOpaque(twoBit, 0, 0)).toBe(false);
+    expect(isPngPixelOpaque(twoBit, 1, 0)).toBe(true);
+    expect(isPngPixelOpaque(twoBit, 3, 0)).toBe(true);
+
+    const oneBit = palettePng(8, 1, 1, [0, 1, 1, 0, 0, 0, 1, 0], [0, 255]);
+    expect(isPngPixelOpaque(oneBit, 0, 0)).toBe(false);
+    expect(isPngPixelOpaque(oneBit, 2, 0)).toBe(true);
+    expect(isPngPixelOpaque(oneBit, 6, 0)).toBe(true);
   });
 
   it("does not refetch a nowcast tile until JMA changes basetime", async () => {

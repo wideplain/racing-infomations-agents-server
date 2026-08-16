@@ -603,6 +603,7 @@ let routeWeatherSnapshotsSessionId = null;
 let routeWeatherSnapshotsInFlight = false;
 let weatherViewTimer = null;
 let weatherForecastTimeline = null;
+let weatherPrecipitationOutlook = null;
 let weatherForecastTimelineSessionId = null;
 let weatherForecastTimelineFetchedAt = 0;
 let weatherForecastTimelineInFlight = false;
@@ -617,6 +618,7 @@ function resetRouteSessionData() {
   routeWeatherSnapshotsFetchedAt = 0;
   routeWeatherSnapshotsSessionId = null;
   weatherForecastTimeline = null;
+  weatherPrecipitationOutlook = null;
   weatherForecastTimelineSessionId = null;
   weatherForecastTimelineFetchedAt = 0;
   routeSlider.value = "0";
@@ -700,6 +702,7 @@ async function refreshWeatherForecastTimeline(force = false) {
     const response = await api(`/api/sessions/${requestedSessionId}/weather-timeline`);
     if (requestedSessionId !== sessionId) return;
     weatherForecastTimeline = response.timeline || null;
+    weatherPrecipitationOutlook = response.precipitation || null;
     weatherForecastTimelineSessionId = requestedSessionId;
     weatherForecastTimelineFetchedAt = Date.now();
     renderWeatherTimeline();
@@ -707,6 +710,7 @@ async function refreshWeatherForecastTimeline(force = false) {
     console.warn("weather forecast timeline refresh failed", err);
     if (requestedSessionId === sessionId) {
       weatherForecastTimeline = null;
+      weatherPrecipitationOutlook = null;
       weatherForecastTimelineSessionId = requestedSessionId;
       renderWeatherTimeline();
     }
@@ -977,35 +981,80 @@ function routeHistoryWeatherText(snapshot) {
   return values.length > 0 ? values.join(" ") : "—";
 }
 
+const weatherTimeFormatter = new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit" });
+const weatherDayFormatter = new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
+
+function formatWeatherTime(value) {
+  const at = new Date(value).getTime();
+  return Number.isFinite(at) ? weatherTimeFormatter.format(at) : "—";
+}
+
+/** The nowcast is a per-five-minute yes/no, the probability is a per-six-hour percentage. They
+ * are rendered as separate blocks so neither borrows the other's precision. */
+function renderNowcastRows() {
+  const now = Date.now();
+  const baseTime = weatherForecastTimeline.baseTime ? formatWeatherTime(weatherForecastTimeline.baseTime) : "—";
+  const rows = weatherForecastTimeline.points.map((point) => {
+    const pointTime = new Date(point.validAt).getTime();
+    const minutes = Number.isFinite(pointTime) ? Math.max(0, Math.round((pointTime - now) / 60_000)) : null;
+    const eta = minutes === null ? formatWeatherTime(point.validAt) : minutes === 0 ? "まもなく" : `${minutes}分後`;
+    const rain = point.isRaining === true ? "☔ 雨" : point.isRaining === false ? "☀️ 雨なし" : "— 未取得";
+    return `<article class="weather-timeline-entry${point.isRaining === true ? " raining" : ""}">
+      <time class="weather-timeline-time">${escapeHtml(eta)}<br>${escapeHtml(formatWeatherTime(point.validAt))}</time>
+      <div class="weather-timeline-values forecast">
+        <span class="weather-timeline-value rain">${escapeHtml(rain)}</span>
+      </div>
+    </article>`;
+  }).join("");
+  return `<h3 class="weather-block-title">これからの雨 <span>5分ごと・1時間先まで</span></h3>
+    ${rows}
+    <p class="weather-timeline-source">気象庁 高解像度降水ナウキャスト · 基準 ${escapeHtml(baseTime)}</p>`;
+}
+
+function renderPrecipitationRows() {
+  const outlook = weatherPrecipitationOutlook;
+  const now = Date.now();
+  // A slot already under way still matters to someone driving now, so only fully-past slots go.
+  const slots = outlook.slots.filter((slot) => {
+    const endAt = new Date(slot.endAt).getTime();
+    return !Number.isFinite(endAt) || endAt > now;
+  });
+  if (slots.length === 0) return "";
+  let lastDay = "";
+  const rows = slots.map((slot) => {
+    const startAt = new Date(slot.startAt).getTime();
+    const day = Number.isFinite(startAt) ? weatherDayFormatter.format(startAt) : "";
+    const dayLabel = day && day !== lastDay ? `${day}<br>` : "";
+    lastDay = day || lastDay;
+    const level = slot.probability >= 70 ? " high" : slot.probability >= 30 ? " medium" : "";
+    return `<article class="weather-timeline-entry">
+      <time class="weather-timeline-time">${dayLabel}${escapeHtml(formatWeatherTime(slot.startAt))}–${escapeHtml(formatWeatherTime(slot.endAt))}</time>
+      <div class="weather-timeline-values forecast">
+        <span class="weather-timeline-value pop${level}">${escapeHtml(String(slot.probability))}%</span>
+      </div>
+    </article>`;
+  }).join("");
+  const reported = outlook.reportedAt ? ` · ${escapeHtml(formatWeatherTime(outlook.reportedAt))}発表` : "";
+  return `<h3 class="weather-block-title">降水確率 <span>6時間ごと</span></h3>
+    ${rows}
+    <p class="weather-timeline-source">気象庁 府県天気予報 · ${escapeHtml(outlook.areaName)}${reported}</p>`;
+}
+
 function renderWeatherTimeline() {
   if (!weatherTimelineEl) return;
   if (weatherForecastTimelineSessionId !== sessionId) {
     weatherTimelineEl.textContent = "位置情報を待っています";
     return;
   }
-  if (!weatherForecastTimeline?.points?.length) {
+  const blocks = [];
+  if (weatherForecastTimeline?.points?.length) blocks.push(renderNowcastRows());
+  if (weatherPrecipitationOutlook?.slots?.length) blocks.push(renderPrecipitationRows());
+  const html = blocks.filter(Boolean).join("");
+  if (!html) {
     weatherTimelineEl.textContent = "予報を取得できませんでした";
     return;
   }
-  const formatTime = (value) => new Date(value).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-  const baseTime = weatherForecastTimeline.baseTime ? formatTime(weatherForecastTimeline.baseTime) : "—";
-  const now = Date.now();
-  const rows = weatherForecastTimeline.points.map((point) => {
-    const pointTime = new Date(point.validAt).getTime();
-    const minutes = Number.isFinite(pointTime) ? Math.max(0, Math.round((pointTime - now) / 60_000)) : null;
-    const eta = minutes === null ? formatTime(point.validAt) : minutes === 0 ? "まもなく" : `${minutes}分後`;
-    const rain = point.isRaining === true ? "☔ 雨" : point.isRaining === false ? "☀️ 雨なし" : "— 未取得";
-    return `<article class="weather-timeline-entry">
-      <time class="weather-timeline-time">${escapeHtml(eta)}<br>${escapeHtml(formatTime(point.validAt))}</time>
-      <div>
-        <div class="weather-timeline-values forecast">
-          <span class="weather-timeline-value rain">${escapeHtml(rain)}</span>
-          <p class="weather-timeline-source">気象庁 高解像度降水ナウキャスト · 基準 ${escapeHtml(baseTime)}</p>
-        </div>
-      </div>
-    </article>`;
-  }).join("");
-  weatherTimelineEl.innerHTML = rows;
+  weatherTimelineEl.innerHTML = html;
 }
 
 function renderRouteHistory() {
