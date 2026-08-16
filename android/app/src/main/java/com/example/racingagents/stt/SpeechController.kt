@@ -44,6 +44,7 @@ class SpeechController(
     private val onSegment: (RecognizedSegment) -> Unit,
     private val onStateChanged: (ListeningState) -> Unit,
     private val muteRestartBeepProvider: () -> Boolean,
+    private val languageProvider: () -> String,
 ) {
     private var recognizer: SpeechRecognizer? = null
     private var isRestartPending = false
@@ -211,7 +212,13 @@ class SpeechController(
 
     private fun buildRecognizerIntent() = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ja-JP")
+        // Read through the provider (not a captured value) every time this is built: the
+        // recognizer only picks up the language at startListening() time, and this class already
+        // recreates/restarts the recognizer on its restart loop, so this is what makes a
+        // mid-session language switch take effect on the next restart.
+        val language = languageProvider()
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language)
         putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)

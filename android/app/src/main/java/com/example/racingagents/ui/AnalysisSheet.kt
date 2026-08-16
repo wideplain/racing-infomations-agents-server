@@ -39,9 +39,9 @@ import java.util.Locale
 
 private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.JAPAN)
 
-/** Bottom half of the split-screen layout: a timestamped timeline of AI解析 runs, newest at the
- * bottom (like a log), always visible (no modal) so multiple analyses accumulate instead of
- * overwriting each other. */
+/** Bottom half of the split-screen layout: a timestamped timeline of AI解析 runs, **newest first**
+ * so the latest result is always the first thing visible without scrolling. Always visible (no
+ * modal) so multiple analyses accumulate instead of overwriting each other. */
 @Composable
 fun AnalysisPanel(
     analysisHistory: List<AnalysisEntry>,
@@ -50,18 +50,21 @@ fun AnalysisPanel(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Re-scroll not just when a new entry is appended, but whenever the newest entry's content
-    // grows (QUEUED -> RUNNING -> DONE streams in more text) — keying on size alone would miss
-    // those in-place updates and leave the view stuck once a long result overflows the panel.
-    val last = analysisHistory.lastOrNull()
-    val scrollSignature = last?.let { "${it.localId}:${it.status}:${it.result?.result?.summary?.length ?: 0}" }
+    // Newest-first ordering: the incoming list is oldest-first (append order), so reverse it.
+    val newestFirst = remember(analysisHistory) { analysisHistory.asReversed() }
+
+    // Snap back to the top not just when a new entry is prepended, but whenever the newest
+    // entry's content grows (QUEUED -> RUNNING -> DONE streams in more text) — keying on size
+    // alone would miss those in-place updates.
+    val newest = analysisHistory.lastOrNull()
+    val scrollSignature = newest?.let { "${it.localId}:${it.status}:${it.result?.result?.summary?.length ?: 0}" }
     LaunchedEffect(scrollSignature) {
-        if (analysisHistory.isNotEmpty()) {
-            coroutineScope.launch { listState.animateScrollToItem(analysisHistory.size - 1) }
+        if (newestFirst.isNotEmpty()) {
+            coroutineScope.launch { listState.animateScrollToItem(0) }
         }
     }
 
-    if (analysisHistory.isEmpty()) {
+    if (newestFirst.isEmpty()) {
         Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
             Text("解析を開始していません")
         }
@@ -69,7 +72,7 @@ fun AnalysisPanel(
     }
 
     LazyColumn(state = listState, modifier = modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        items(analysisHistory, key = { it.localId }) { entry ->
+        items(newestFirst, key = { it.localId }) { entry ->
             AnalysisEntryCard(entry)
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
@@ -104,6 +107,35 @@ private fun AnalysisEntryCard(entry: AnalysisEntry) {
                 val result = entry.result?.result
                 if (result == null) {
                     Text("結果がありません")
+                } else if (result.headline != null) {
+                    // Driver-mode result: same four short fields the HUD shows, rendered inline
+                    // for when the user switches to the detailed view.
+                    SectionTitle("状況")
+                    Text(result.headline)
+                    Spacer(Modifier.height(8.dp))
+                    SectionTitle("次の一手")
+                    Text("▶ ${result.action ?: "-"}")
+                    if (!result.watch.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        SectionTitle("注意")
+                        Text("⚠ ${result.watch}", color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.AssistChip(
+                        onClick = {},
+                        label = {
+                            val label = when (result.urgency) {
+                                "high" -> "高"
+                                "medium" -> "中"
+                                else -> "低"
+                            }
+                            Text("緊急度: $label")
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { copyToClipboard(context, buildCopyText(result)) }) {
+                        Text("コピー")
+                    }
                 } else if (result.statusSummary != null) {
                     // Pitwall-mode result: race-radio style sections instead of the default ones.
                     SectionTitle("状況")
@@ -195,7 +227,12 @@ private fun SectionTitle(text: String) {
 }
 
 private fun buildCopyText(result: com.example.racingagents.net.AnalysisResultDto): String = buildString {
-    if (result.statusSummary != null) {
+    if (result.headline != null) {
+        appendLine("状況: ${result.headline}")
+        appendLine("次の一手: ${result.action ?: "-"}")
+        if (!result.watch.isNullOrBlank()) appendLine("注意: ${result.watch}")
+        appendLine("緊急度: ${result.urgency ?: "low"}")
+    } else if (result.statusSummary != null) {
         appendLine("状況: ${result.statusSummary}")
         appendLine("変化: ${result.change ?: "-"}")
         appendLine("確認質問: ${result.question ?: "-"}")

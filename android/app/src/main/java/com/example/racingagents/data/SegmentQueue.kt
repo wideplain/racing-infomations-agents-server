@@ -141,6 +141,21 @@ class SegmentQueue(
         }
     }
 
+    /** Drops every not-yet-uploaded segment, in memory and on disk. Used when starting a new
+     * session: otherwise the previous conversation's undelivered backlog would drain into the
+     * fresh session, and the persisted snapshot would resurrect it on the next restore. */
+    suspend fun clearAll() {
+        drainJob?.cancel()
+        drainJob = null
+        core.restore(emptyList())
+        _pendingCount.value = 0
+        _pendingSeqs.value = emptySet()
+        _lastSendError.value = null
+        context.segmentQueueDataStore.edit { prefs ->
+            prefs[snapshotKey] = json.encodeToString(emptyList<PendingSegment>())
+        }
+    }
+
     private fun startDrainLoopIfNeeded() {
         if (drainJob?.isActive == true) return
         drainJob = scope.launch {
