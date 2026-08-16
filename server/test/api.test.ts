@@ -4,7 +4,7 @@ import { openDb, type DB } from "../src/db/index.js";
 import { buildApp } from "../src/app.js";
 import type { Config } from "../src/config.js";
 import type { AIProvider, AnalyzeInput, AnalyzeOutput } from "../src/ai/types.js";
-import type { WeatherInfo, WeatherProvider, WeatherSnapshotInput, WeatherSnapshotProvider } from "../src/weather/types.js";
+import type { PrecipitationOutlook, RainNowcastTimeline, WeatherInfo, WeatherProvider, WeatherSnapshotInput, WeatherSnapshotProvider } from "../src/weather/types.js";
 import { RouteResolver } from "../src/route/routeResolver.js";
 
 const config: Config = {
@@ -22,12 +22,17 @@ const config: Config = {
 
 class FakeWeatherProvider implements WeatherProvider {
   result: WeatherInfo | null = null;
+  precipitation: PrecipitationOutlook | null = null;
   async getWeather(): Promise<WeatherInfo | null> {
     return this.result;
+  }
+  async getPrecipitationOutlook(): Promise<PrecipitationOutlook | null> {
+    return this.precipitation;
   }
 }
 
 class FakeWeatherSnapshotProvider implements WeatherSnapshotProvider {
+  timeline: RainNowcastTimeline | null = null;
   result: WeatherSnapshotInput = {
     isRaining: null,
     precipitationIntensity: null,
@@ -43,6 +48,9 @@ class FakeWeatherSnapshotProvider implements WeatherSnapshotProvider {
   };
   async getWeather(): Promise<WeatherSnapshotInput> {
     return this.result;
+  }
+  async getRainTimeline(): Promise<RainNowcastTimeline | null> {
+    return this.timeline;
   }
 }
 
@@ -648,6 +656,11 @@ describe("API", () => {
       source: "jma",
       weatherForecast: { etaMinutes: 0, weather: "晴れ" },
     };
+    fakeWeather.precipitation = {
+      areaName: "南部",
+      reportedAt: "2026-08-16T17:00:00+09:00",
+      slots: [{ startAt: "2026-08-16T09:00:00.000Z", endAt: "2026-08-16T15:00:00.000Z", probability: 40 }],
+    };
     const createRes = await app.inject({
       method: "POST",
       url: "/api/sessions",
@@ -664,6 +677,21 @@ describe("API", () => {
         locations: [{ lat: 35.681236, lng: 139.767125, recordedAt: new Date().toISOString() }],
       },
     });
+    // The route screen reads the current point directly rather than waiting for the one-minute
+    // persistence job, while still exposing the weather source's own observation timestamp.
+    fakeWeatherSnapshot.result = {
+      isRaining: false,
+      precipitationIntensity: null,
+      temperatureC: 26.4,
+      humidityPercent: 71,
+      windSpeedMs: 3.2,
+      weatherObservedAt: "2026-08-17T03:00:00.000Z",
+      rainSourceObservedAt: "2026-08-17T03:00:00.000Z",
+      amedasObservedAt: "2026-08-17T02:50:00.000Z",
+      amedasStationId: "44132",
+      amedasStationDistanceKm: 4.2,
+      source: { rain: "jma-nowcast", temperature: "jma-amedas" },
+    };
 
     const weatherRes = await app.inject({
       method: "GET",
@@ -673,7 +701,51 @@ describe("API", () => {
     expect(weatherRes.statusCode).toBe(200);
     expect(weatherRes.json()).toMatchObject({
       weather: { weatherForecast: { etaMinutes: 0, weather: "晴れ" } },
+      snapshot: {
+        latitude: 35.681236,
+        longitude: 139.767125,
+        temperatureC: 26.4,
+        humidityPercent: 71,
+        windSpeedMs: 3.2,
+        amedasObservedAt: "2026-08-17T02:50:00.000Z",
+      },
+      precipitation: fakeWeather.precipitation,
     });
+  });
+
+  // The driver HUD polls only this endpoint, never weather-timeline, so it must carry the
+  // precipitation probability itself; but a failure to fetch it must not blank out the weather
+  // or snapshot that the same request already has in hand.
+  it("still returns weather and snapshot when the precipitation outlook fails", async () => {
+    fakeWeather.result = {
+      summaryText: "東京都: 晴れ",
+      fetchedAt: new Date().toISOString(),
+      source: "jma",
+      weatherForecast: { etaMinutes: 0, weather: "晴れ" },
+    };
+    fakeWeather.getPrecipitationOutlook = async () => {
+      throw new Error("precipitation fetch failed");
+    };
+    const session = (await app.inject({ method: "POST", url: "/api/sessions", headers: authHeaders(), payload: {} })).json();
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: {
+        locations: [{ lat: 35.681236, lng: 139.767125, recordedAt: new Date().toISOString() }],
+      },
+    });
+
+    const weatherRes = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather`,
+      headers: authHeaders(),
+    });
+    expect(weatherRes.statusCode).toBe(200);
+    const body = weatherRes.json();
+    expect(body.weather).toMatchObject({ weatherForecast: { etaMinutes: 0, weather: "晴れ" } });
+    expect(body.precipitation).toBeNull();
+    expect(body.reason).toBeUndefined();
   });
 
   it("records one current-weather snapshot per session minute without blocking location posts", async () => {
@@ -727,6 +799,69 @@ describe("API", () => {
       amedasStationDistanceKm: 4.2,
       source: { rain: "jma-nowcast", temperature: "jma-amedas" },
     });
+  });
+
+  it("returns the future rain timeline and precipitation probability for the most recent location", async () => {
+    fakeWeatherSnapshot.timeline = {
+      baseTime: "2026-08-16T12:00:00.000Z",
+      points: [
+        { validAt: "2026-08-16T12:05:00.000Z", isRaining: false },
+        { validAt: "2026-08-16T12:10:00.000Z", isRaining: true },
+      ],
+    };
+    fakeWeather.precipitation = {
+      areaName: "南部",
+      reportedAt: "2026-08-16T17:00:00+09:00",
+      slots: [{ startAt: "2026-08-16T09:00:00.000Z", endAt: "2026-08-16T15:00:00.000Z", probability: 40 }],
+    };
+    const session = (await app.inject({ method: "POST", url: "/api/sessions", headers: authHeaders(), payload: {} })).json();
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: { locations: [{ lat: 35.681, lng: 139.767, recordedAt: new Date().toISOString() }] },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather-timeline`,
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      location: { latitude: 35.681, longitude: 139.767 },
+      timeline: fakeWeatherSnapshot.timeline,
+      precipitation: fakeWeather.precipitation,
+    });
+  });
+
+  // The nowcast and the probability come from different JMA products; losing one must not blank
+  // the other out on the weather screen.
+  it("still returns the probability when the rain nowcast is unavailable", async () => {
+    fakeWeatherSnapshot.timeline = null;
+    fakeWeather.precipitation = {
+      areaName: "南部",
+      reportedAt: null,
+      slots: [{ startAt: "2026-08-16T09:00:00.000Z", endAt: "2026-08-16T15:00:00.000Z", probability: 40 }],
+    };
+    const session = (await app.inject({ method: "POST", url: "/api/sessions", headers: authHeaders(), payload: {} })).json();
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: { locations: [{ lat: 35.681, lng: 139.767, recordedAt: new Date().toISOString() }] },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather-timeline`,
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.timeline).toBeNull();
+    expect(body.precipitation).toEqual(fakeWeather.precipitation);
+    expect(body.reason).toBeUndefined();
   });
 
   it("rejects invalid location payloads", async () => {

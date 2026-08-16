@@ -104,15 +104,20 @@ header {
   white-space: nowrap;
   flex: 0 0 auto;
 }
-.apikey-details {
+.viewer-footer {
   flex: 0 0 auto;
-  min-width: 0;
+  padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+  color: var(--muted);
+  font-size: .8rem;
 }
+.apikey-details { min-width: 0; }
 .apikey-details summary {
+  cursor: pointer;
   white-space: nowrap;
   color: var(--muted);
 }
-.apikey-details input { background: var(--surface-strong); border: 0; color: var(--text); }
+.apikey-details .apikey-row { margin-top: 6px; }
+.apikey-details input { background: var(--surface-strong); border: 0; color: var(--text); max-width: min(100%, 330px); }
 
 @media (max-width: 700px) {
   header {
@@ -131,9 +136,6 @@ header {
   }
   #hudToggle {
     padding: 5px 8px;
-    font-size: 0.8rem;
-  }
-  .apikey-details summary {
     font-size: 0.8rem;
   }
 }
@@ -190,6 +192,21 @@ header {
    goes to the still-open sibling(s), instead of each pane owning a fixed fraction regardless of
    state. */
 @media (min-width: 701px) {
+  /* Give the two desktop panes an explicit, bounded height. Without this, a browser can size
+     the flex scroller to its content; the outer pane then clips it and mouse-wheel scrolling
+     appears to do nothing. */
+  #viewerSection {
+    height: 100%;
+    overflow: hidden;
+  }
+  #viewerSection > .viewer-pane {
+    height: 100%;
+    min-width: 0;
+  }
+  #viewerSection > .viewer-pane[open] > .viewer-scroll {
+    height: 0;
+    overflow-y: scroll;
+  }
   #viewerSection.collapsed-segments { grid-template-columns: auto minmax(0, 1fr); }
   #viewerSection.collapsed-analyses { grid-template-columns: minmax(0, 1fr) auto; }
 }
@@ -230,6 +247,28 @@ header {
   flex-direction: column;
   gap: 12px;
 }
+.weather-screen { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.weather-screen-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.weather-screen-heading p { margin: 0 0 2px; color: var(--muted); font-size: .62rem; font-weight: 800; letter-spacing: .13em; }
+.weather-screen-heading h2 { margin: 0; font-size: 1.15rem; }
+.weather-screen-heading > span { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.weather-timeline { display: grid; flex: 1 1 0; min-height: 0; align-content: start; gap: 8px; overflow-y: auto; }
+.weather-timeline-entry { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; padding: 10px; border-radius: var(--pane-radius); background: linear-gradient(145deg, rgba(23, 33, 50, .98), rgba(18, 26, 39, .98)); }
+.weather-timeline-time { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; font-weight: 750; }
+.weather-timeline-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.weather-timeline-value { min-width: 0; padding: 7px; border-radius: 7px; background: rgba(11, 16, 25, .42); color: var(--text); font-size: clamp(.9rem, 3.8vw, 1.15rem); font-weight: 800; text-align: center; white-space: nowrap; }
+.weather-timeline-value.rain { color: var(--accent-pitwall); }
+.weather-timeline-value.pop { font-variant-numeric: tabular-nums; }
+.weather-timeline-value.pop.medium { color: var(--tl-urgency-medium); }
+.weather-timeline-value.pop.high { color: var(--tl-urgency-high); }
+.weather-timeline-entry.raining { box-shadow: inset 3px 0 0 var(--accent-pitwall); }
+.weather-timeline-values.forecast { grid-template-columns: 1fr; }
+.weather-timeline-values.forecast .weather-timeline-value { font-size: clamp(1rem, 4.2vw, 1.25rem); }
+.weather-block-title { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 0; font-size: .95rem; letter-spacing: .04em; }
+.weather-block-title:first-child { margin-top: 0; }
+.weather-block-title span { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; }
+.weather-timeline-source { margin: 3px 0 0; color: var(--muted); font-size: .68rem; line-height: 1.45; }
+@media (max-width: 560px) { .weather-timeline-entry { grid-template-columns: 1fr; gap: 6px; } .weather-timeline-values { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 #routeSection #map {
   flex: 1 1 auto;
   min-height: 240px;
@@ -270,6 +309,15 @@ header {
   font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
+.route-weather-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: .82rem; font-weight: 800; }
+.route-weather-heading small, .route-weather-location { color: var(--muted); font-size: .7rem; font-weight: 600; }
+.route-weather-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.route-weather-item { min-width: 0; padding: 8px; border-radius: 8px; background: rgba(11, 16, 25, .42); }
+.route-weather-item span { display: block; overflow: hidden; color: var(--muted); font-size: .62rem; font-weight: 700; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.route-weather-item strong { display: block; margin: 3px 0 6px; overflow: hidden; color: var(--text); font-size: clamp(1rem, 4.2vw, 1.4rem); line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.route-weather-item small { display: block; color: var(--accent-driver); font-size: .68rem; font-weight: 750; line-height: 1.3; }
+.route-weather-location { margin: 8px 0 0; }
+@media (max-width: 560px) { .route-weather-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 #routeSlider {
   width: 100%;
   accent-color: var(--accent-pitwall);
@@ -297,6 +345,11 @@ header {
 }
 .route-history tr.route-history-row.active {
   background: rgba(255, 93, 61, .14);
+}
+.route-history-weather {
+  white-space: nowrap;
+  color: var(--accent-driver);
+  font-weight: 750;
 }
 
 /* The ルート更新 button drives the 通過地点 pane directly below it (it (re)fetches the place
@@ -368,6 +421,7 @@ header {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
   /* Without this the pane paints past its grid track and overlaps the next pane's heading —
      min-height:0 lets it *shrink*, but only overflow actually clips what spills out. */
   overflow: hidden;
@@ -381,6 +435,19 @@ header {
   list-style: none;
   user-select: none;
   flex: 0 0 auto;
+}
+.latest-button {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-pitwall);
+  color: #151a22;
+  font-size: .75rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 .viewer-pane summary::-webkit-details-marker { display: none; }
 .viewer-pane summary::before {

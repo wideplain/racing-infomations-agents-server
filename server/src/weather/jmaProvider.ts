@@ -1,5 +1,13 @@
 import { TtlCache } from "./cache.js";
-import type { RainForecast, WeatherForecast, WeatherInfo, WeatherProvider } from "./types.js";
+import type {
+  PrecipitationOutlook,
+  PrecipitationOutlookProvider,
+  PrecipitationProbabilitySlot,
+  RainForecast,
+  WeatherForecast,
+  WeatherInfo,
+  WeatherProvider,
+} from "./types.js";
 
 const GSI_URL = "https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress";
 const AREA_JSON_URL = "https://www.jma.go.jp/bosai/common/const/area.json";
@@ -25,7 +33,12 @@ interface ForecastSummary {
   summaryText: string;
   rainForecast?: RainForecast;
   weatherForecast?: WeatherForecast;
+  precipitation?: PrecipitationOutlook;
 }
+
+/** JMA's last published probability slot has no following entry to bound it; its published
+ * slots are six hours wide, so that is what the final slot is assumed to cover. */
+const POP_SLOT_MS = 6 * 60 * 60 * 1000;
 
 export class NoopWeatherProvider implements WeatherProvider {
   async getWeather(): Promise<WeatherInfo | null> {
@@ -33,7 +46,7 @@ export class NoopWeatherProvider implements WeatherProvider {
   }
 }
 
-export class JmaWeatherProvider implements WeatherProvider {
+export class JmaWeatherProvider implements WeatherProvider, PrecipitationOutlookProvider {
   private fetchFn: typeof fetch;
   private timeoutMs: number;
   private areaJsonCache = new TtlCache<AreaJson>();
@@ -47,18 +60,35 @@ export class JmaWeatherProvider implements WeatherProvider {
 
   async getWeather(lat: number, lng: number): Promise<WeatherInfo | null> {
     try {
-      const muniCd = await this.resolveMuniCd(lat, lng);
-      if (!muniCd) return null;
-      const areaJson = await this.loadAreaJson();
-      if (!areaJson) return null;
-      const resolved = this.resolveOffice(areaJson, muniCd);
-      if (!resolved) return null;
-      const forecast = await this.fetchSummary(resolved.office, resolved.class10Code, resolved.areaName);
+      const forecast = await this.loadForecast(lat, lng);
       if (!forecast) return null;
-      return { ...forecast, fetchedAt: new Date().toISOString(), source: "jma" };
+      // The probability slots are served by their own endpoint; they stay out of the summary
+      // payload so the HUD and the prompt keep seeing exactly the fields they always did.
+      const { precipitation: _precipitation, ...info } = forecast;
+      return { ...info, fetchedAt: new Date().toISOString(), source: "jma" };
     } catch {
       return null;
     }
+  }
+
+  /** Six-hourly precipitation probability for the location's forecast area. Shares the area
+   * resolution and the cached office forecast with getWeather, so asking for both is one fetch. */
+  async getPrecipitationOutlook(lat: number, lng: number): Promise<PrecipitationOutlook | null> {
+    try {
+      return (await this.loadForecast(lat, lng))?.precipitation ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async loadForecast(lat: number, lng: number): Promise<ForecastSummary | null> {
+    const muniCd = await this.resolveMuniCd(lat, lng);
+    if (!muniCd) return null;
+    const areaJson = await this.loadAreaJson();
+    if (!areaJson) return null;
+    const resolved = this.resolveOffice(areaJson, muniCd);
+    if (!resolved) return null;
+    return this.fetchSummary(resolved.office, resolved.class10Code, resolved.areaName);
   }
 
   private async resolveMuniCd(lat: number, lng: number): Promise<string | null> {
@@ -130,6 +160,7 @@ export class JmaWeatherProvider implements WeatherProvider {
     });
     if (!res.ok) return null;
     const forecast = (await res.json()) as Array<{
+      reportDatetime?: string;
       timeSeries: Array<{
         timeDefines?: string[];
         areas: Array<{
@@ -146,6 +177,7 @@ export class JmaWeatherProvider implements WeatherProvider {
     let pop: string | undefined;
     let rainForecast: RainForecast | undefined;
     let weatherForecast: WeatherForecast | undefined;
+    let popSlots: PrecipitationProbabilitySlot[] | undefined;
     for (const ts of timeSeriesList) {
       const area =
         ts.areas.find((a) => a.area.code === class10Code) ?? ts.areas[0];
@@ -162,6 +194,9 @@ export class JmaWeatherProvider implements WeatherProvider {
       if (!rainForecast && area.pops && ts.timeDefines) {
         rainForecast = this.findNextRainForecast(ts.timeDefines, area.pops);
       }
+      if (!popSlots?.length && area.pops && ts.timeDefines) {
+        popSlots = this.buildProbabilitySlots(ts.timeDefines, area.pops);
+      }
     }
     if (!weatherText) return null;
 
@@ -174,10 +209,39 @@ export class JmaWeatherProvider implements WeatherProvider {
       ...(weatherForecast ?? weatherText
         ? { weatherForecast: weatherForecast ?? { etaMinutes: 0, weather: weatherText } }
         : {}),
+      ...(popSlots?.length
+        ? {
+            precipitation: {
+              areaName,
+              reportedAt: forecast[0]?.reportDatetime ?? null,
+              slots: popSlots,
+            },
+          }
+        : {}),
     };
 
     this.summaryCache.set(key, summary, SUMMARY_TTL_MS);
     return summary;
+  }
+
+  /** Every published slot, not just the next rainy one, so the weather screen can show how the
+   * chance of rain moves across the day. Slots JMA leaves blank are dropped rather than shown
+   * as 0%, and each slot is bounded by the following one. */
+  private buildProbabilitySlots(timeDefines: string[], pops: string[]): PrecipitationProbabilitySlot[] {
+    const slots: PrecipitationProbabilitySlot[] = [];
+    for (let index = 0; index < Math.min(timeDefines.length, pops.length); index++) {
+      const probability = Number(pops[index]);
+      const startAt = new Date(timeDefines[index]).getTime();
+      if (pops[index] === "" || !Number.isFinite(probability) || !Number.isFinite(startAt)) continue;
+      const nextAt = index + 1 < timeDefines.length ? new Date(timeDefines[index + 1]).getTime() : NaN;
+      const endAt = Number.isFinite(nextAt) ? nextAt : startAt + POP_SLOT_MS;
+      slots.push({
+        startAt: new Date(startAt).toISOString(),
+        endAt: new Date(endAt).toISOString(),
+        probability,
+      });
+    }
+    return slots;
   }
 
   /** JMA precipitation probabilities are published in time slots. Surface the next slot at 50%

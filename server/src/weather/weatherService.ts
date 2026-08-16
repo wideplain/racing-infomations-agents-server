@@ -1,4 +1,4 @@
-import type { WeatherSnapshotInput, WeatherSnapshotProvider } from "./types.js";
+import type { RainNowcastProvider, RainNowcastTimeline, WeatherSnapshotInput, WeatherSnapshotProvider } from "./types.js";
 import { JmaAmedasClient } from "./amedasClient.js";
 import { JmaNowcastClient } from "./nowcastClient.js";
 
@@ -26,7 +26,7 @@ export class NoopWeatherSnapshotProvider implements WeatherSnapshotProvider {
   }
 }
 
-export class WeatherService implements WeatherSnapshotProvider {
+export class WeatherService implements WeatherSnapshotProvider, RainNowcastProvider {
   constructor(
     private nowcast = new JmaNowcastClient(),
     private amedas = new JmaAmedasClient()
@@ -54,5 +54,9 @@ export class WeatherService implements WeatherSnapshotProvider {
         temperature: observation.observedAt === null ? null : "jma-amedas",
       },
     };
+  }
+
+  async getRainTimeline(latitude: number, longitude: number): Promise<RainNowcastTimeline | null> {
+    return this.nowcast.getRainTimeline(latitude, longitude);
   }
 }

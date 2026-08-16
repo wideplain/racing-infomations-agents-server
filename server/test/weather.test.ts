@@ -183,6 +183,74 @@ describe("JmaWeatherProvider", () => {
     expect(result?.summaryText).toBe("熊本地方: くもり時々雨 / 降水確率: 60%");
   });
 
+  it("returns every published probability slot, bounded by the next one", async () => {
+    const forecastJson = [
+      {
+        reportDatetime: "2026-08-16T17:00:00+09:00",
+        timeSeries: [
+          {
+            areas: [{ area: { code: "430010", name: "熊本地方" }, weathers: ["くもり"] }],
+          },
+          {
+            timeDefines: [
+              "2026-08-16T18:00:00+09:00",
+              "2026-08-17T00:00:00+09:00",
+              "2026-08-17T06:00:00+09:00",
+            ],
+            areas: [{ area: { code: "430010", name: "熊本地方" }, pops: ["20", "10", "50"] }],
+          },
+        ],
+      },
+    ];
+    const { fn } = makeFetch({ forecastJson });
+    const provider = new JmaWeatherProvider({ fetchFn: fn, timeoutMs: 1000 });
+
+    await expect(provider.getPrecipitationOutlook(32.8, 130.7)).resolves.toEqual({
+      areaName: "熊本地方",
+      reportedAt: "2026-08-16T17:00:00+09:00",
+      slots: [
+        { startAt: "2026-08-16T09:00:00.000Z", endAt: "2026-08-16T15:00:00.000Z", probability: 20 },
+        { startAt: "2026-08-16T15:00:00.000Z", endAt: "2026-08-16T21:00:00.000Z", probability: 10 },
+        // The last slot has no following entry, so it takes JMA's six-hour slot width.
+        { startAt: "2026-08-16T21:00:00.000Z", endAt: "2026-08-17T03:00:00.000Z", probability: 50 },
+      ],
+    });
+  });
+
+  it("skips probability slots JMA publishes as blank rather than reporting them as 0%", async () => {
+    const forecastJson = [
+      {
+        timeSeries: [
+          {
+            areas: [{ area: { code: "430010", name: "熊本地方" }, weathers: ["くもり"] }],
+          },
+          {
+            timeDefines: ["2026-08-17T00:00:00+09:00", "2026-08-17T06:00:00+09:00"],
+            areas: [{ area: { code: "430010", name: "熊本地方" }, pops: ["", "30"] }],
+          },
+        ],
+      },
+    ];
+    const { fn } = makeFetch({ forecastJson });
+    const provider = new JmaWeatherProvider({ fetchFn: fn, timeoutMs: 1000 });
+
+    const outlook = await provider.getPrecipitationOutlook(32.8, 130.7);
+    expect(outlook?.slots).toEqual([
+      { startAt: "2026-08-16T21:00:00.000Z", endAt: "2026-08-17T03:00:00.000Z", probability: 30 },
+    ]);
+    expect(outlook?.reportedAt).toBeNull();
+  });
+
+  // The probability slots ride along on the forecast the summary already fetched; keeping them
+  // out of WeatherInfo means the HUD and the prompt see exactly the fields they always did.
+  it("keeps the probability slots out of the weather summary payload", async () => {
+    const { fn } = makeFetch({ gsiMuniCd: "431001" });
+    const provider = new JmaWeatherProvider({ fetchFn: fn, timeoutMs: 1000 });
+    const result = await provider.getWeather(32.8, 130.7);
+    expect(result).not.toBeNull();
+    expect(result).not.toHaveProperty("precipitation");
+  });
+
   it("returns null instead of throwing when a fetch stage fails", async () => {
     const { fn } = makeFetch({ fail: "forecast" });
     const provider = new JmaWeatherProvider({ fetchFn: fn, timeoutMs: 1000 });

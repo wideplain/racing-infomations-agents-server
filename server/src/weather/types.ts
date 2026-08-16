@@ -52,3 +52,37 @@ export type WeatherSnapshotInput = Omit<WeatherSnapshot, "recordedAt" | "latitud
 export interface WeatherSnapshotProvider {
   getWeather(latitude: number, longitude: number): Promise<WeatherSnapshotInput>;
 }
+
+/** Five-minute precipitation forecasts for one point. These are intentionally separate from
+ * WeatherSnapshot: AMeDAS supplies observations, not a point forecast for temperature or wind. */
+export interface RainNowcastPoint {
+  validAt: string;
+  isRaining: boolean | null;
+}
+
+export interface RainNowcastTimeline {
+  baseTime: string;
+  points: RainNowcastPoint[];
+}
+
+export interface RainNowcastProvider {
+  getRainTimeline(latitude: number, longitude: number): Promise<RainNowcastTimeline | null>;
+}
+
+/** JMA publishes precipitation probability per six-hour slot, not per minute. It is kept apart
+ * from the nowcast timeline above so neither is ever redrawn at the other's granularity. */
+export interface PrecipitationProbabilitySlot {
+  startAt: string;
+  endAt: string;
+  probability: number;
+}
+
+export interface PrecipitationOutlook {
+  areaName: string;
+  reportedAt: string | null;
+  slots: PrecipitationProbabilitySlot[];
+}
+
+export interface PrecipitationOutlookProvider {
+  getPrecipitationOutlook(lat: number, lng: number): Promise<PrecipitationOutlook | null>;
+}

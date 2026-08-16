@@ -20,6 +20,7 @@ const watchEl = document.getElementById("driverWatch");
 const urgencyEl = document.getElementById("driverUrgency");
 const weatherEl = document.getElementById("driverWeather");
 const weatherRainEl = document.getElementById("driverWeatherRain");
+const weatherPopEl = document.getElementById("driverWeatherPop");
 const weatherTempEl = document.getElementById("driverWeatherTemp");
 const weatherHumidityEl = document.getElementById("driverWeatherHumidity");
 const weatherWindEl = document.getElementById("driverWeatherWind");
@@ -35,6 +36,7 @@ const followLatest = !requestedSession || requestedSession === "latest";
 let sessionId = followLatest ? null : requestedSession;
 let snapshot = null;
 let weather = null;
+let precipitation = null;
 let weatherFetchedAt = 0;
 let locationWatchId = null;
 let locationBuffer = [];
@@ -43,7 +45,9 @@ let lastAnalysisSignature = "";
 let lastSessionCheckAt = 0;
 let weatherInFlight = false;
 let previousSpeedSample = null;
-let latestSpeedMps = null;
+// A stopped driver must still see a speed value. Some browsers leave coords.speed unset
+// while stationary, so start at zero and replace it as soon as GPS or movement supplies one.
+let latestSpeedMps = 0;
 let latestSpeedSource = "";
 
 function setConnection(ok) {
@@ -68,8 +72,22 @@ async function syncSession(force = false) {
   sessionId = newest.id;
   weather = null;
   snapshot = null;
+  precipitation = null;
   weatherFetchedAt = 0;
   lastAnalysisSignature = "";
+}
+
+/** JMA publishes probability per six-hour slot, so the driver is shown the slot actually being
+ * driven through, falling back to the next one when the current slot has already been dropped. */
+function currentProbabilitySlot() {
+  const slots = precipitation?.slots;
+  if (!Array.isArray(slots) || slots.length === 0) return null;
+  const now = Date.now();
+  return (
+    slots.find((slot) => new Date(slot.startAt).getTime() <= now && now < new Date(slot.endAt).getTime()) ??
+    slots.find((slot) => new Date(slot.startAt).getTime() > now) ??
+    null
+  );
 }
 
 function renderWeather() {
@@ -84,22 +102,24 @@ function renderWeather() {
     forecast = `${forecastEta <= 5 ? "まもなく" : `${forecastEta}分後`} ${text.includes("晴") ? "☀️" : text.includes("雪") ? "❄️" : "☁️"} ${text}`;
   }
   const rain = snapshot?.isRaining === true ? "☔️" : snapshot?.isRaining === false ? "☀️" : "—";
+  const probabilitySlot = currentProbabilitySlot();
   const temperature = typeof snapshot?.temperatureC === "number" ? `${snapshot.temperatureC.toFixed(0)}°` : "—";
   const humidity = typeof snapshot?.humidityPercent === "number" ? `${snapshot.humidityPercent.toFixed(0)}%` : "—";
-  const wind = typeof snapshot?.windSpeedMs === "number" ? `${snapshot.windSpeedMs.toFixed(1)} m/s` : "—";
+  // The unit lives in this cell's label so every value in the strip stays a bare number.
+  const wind = typeof snapshot?.windSpeedMs === "number" ? snapshot.windSpeedMs.toFixed(1) : "—";
   weatherRainEl.textContent = rain;
+  weatherPopEl.textContent = probabilitySlot ? `${Math.round(probabilitySlot.probability)}%` : "—";
+  weatherPopEl.classList.toggle("high", (probabilitySlot?.probability ?? 0) >= 50);
   weatherTempEl.textContent = temperature;
   weatherHumidityEl.textContent = humidity;
   weatherWindEl.textContent = wind;
   weatherForecastEl.textContent = forecast;
   weatherForecastEl.hidden = !forecast;
   renderSpeed();
-  weatherEl.hidden = !forecast && !snapshot;
+  weatherEl.hidden = !forecast && !snapshot && !probabilitySlot;
 }
 
 function renderSpeed() {
-  speedEl.hidden = latestSpeedMps === null;
-  if (latestSpeedMps === null) return;
   speedValueEl.textContent = `${Math.round(latestSpeedMps * 3.6)} km/h`;
   speedSourceEl.textContent = latestSpeedSource;
 }
@@ -147,6 +167,7 @@ async function refreshWeather(force = false) {
     if (sessionId !== requestedId) return;
     weather = data.weather || null;
     snapshot = data.snapshot || null;
+    precipitation = data.precipitation || null;
     weatherFetchedAt = Date.now();
     renderWeather();
   } finally {

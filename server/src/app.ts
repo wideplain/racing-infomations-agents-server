@@ -63,7 +63,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(
     async (instance) => {
       registerSessionRoutes(instance, deps.db, routeResolver, weatherRecorder);
-      registerAnalyzeRoutes(instance, deps.db, deps.provider, queue, weather);
+      registerAnalyzeRoutes(instance, deps.db, deps.provider, queue, weather, deps.weatherSnapshotProvider);
     },
     { prefix: "/api" }
   );
