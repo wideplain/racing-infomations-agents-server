@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ドライバー表示</title>
+  <link rel="stylesheet" href="/driver.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-lockup">
+      <span class="brand-mark" aria-hidden="true">RR</span>
+      <div>
+        <p class="eyebrow">AI RACE RADIO / LIVE</p>
+        <h1>DRIVER</h1>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="driverConnection" class="connection-indicator" role="status" aria-label="接続中" title="接続中"></span>
+      <a class="icon-link" href="/viewer.html?session=latest" aria-label="通常表示に戻る">↗</a>
+    </div>
+  </header>
+  <main class="driver-main">
+    <section class="driver-card panel-card">
+      <div class="panel-heading">
+        <div><p class="section-kicker">DRIVER BRIEF</p><h2>走行指示</h2></div>
+        <div id="driverSpeed" class="speed-telemetry" hidden>
+          <strong id="driverSpeedValue">— km/h</strong>
+          <small id="driverSpeedSource"></small>
+        </div>
+        <p id="driverUrgency" class="urgency">緊急度: 低</p>
+      </div>
+      <p id="driverHeadline" class="headline">ドライバー解析待ち</p>
+      <p id="driverAction" class="action" hidden></p>
+      <p id="driverWatch" class="watch" hidden></p>
+      <section id="driverWeather" class="weather" aria-label="現在地点の天気" hidden>
+        <div class="weather-grid">
+          <div class="weather-cell weather-rain"><strong id="driverWeatherRain">—</strong></div>
+          <div class="weather-cell"><strong id="driverWeatherTemp">—</strong></div>
+          <div class="weather-cell"><strong id="driverWeatherHumidity">—</strong></div>
+          <div class="weather-cell"><strong id="driverWeatherWind">—</strong></div>
+          <p id="driverWeatherForecast" class="weather-forecast" hidden></p>
+        </div>
+      </section>
+      <p id="driverMeta" class="meta">最新の解析を待機中</p>
+    </section>
+  </main>
+  <script src="/driver.js"></script>
+</body>
+</html>

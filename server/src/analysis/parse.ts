@@ -178,10 +178,10 @@ export interface ParsedDriverAnalysis {
   parseFallback: boolean;
 }
 
-// The Android HUD renders these fields in huge fonts on a small phone
-// screen; the model may overshoot the 24-character instruction, so we
+// The driver HUD renders these fields in huge fonts on a small phone
+// screen; the model may overshoot the 16-character instruction, so we
 // hard-truncate here regardless of what came back.
-const DRIVER_FIELD_MAX_CHARS = 24;
+const DRIVER_FIELD_MAX_CHARS = 16;
 
 function truncateDriverField(value: string): string {
   return value.slice(0, DRIVER_FIELD_MAX_CHARS);
@@ -204,7 +204,7 @@ function fillDriverFromZod(candidate: unknown): ParsedDriverAnalysis | undefined
  * Same fallback chain as parseAnalysis/parsePitwallAnalysis: JSON.parse ->
  * code-fence strip -> outermost {..} extraction -> zod validation with
  * null-fill -> raw-text fallback (parseFallback: true). All string fields
- * are hard-truncated to 24 characters after parsing.
+ * are hard-truncated to 16 characters after parsing.
  */
 export function parseDriverAnalysis(rawText: string): ParsedDriverAnalysis {
   const candidates = [

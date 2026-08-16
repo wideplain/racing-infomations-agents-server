@@ -208,7 +208,7 @@ describe("parseDriverAnalysis", () => {
     expect(result.watch).toBeNull();
   });
 
-  it("hard-truncates headline/action/watch to 24 characters", () => {
+  it("hard-truncates headline/action/watch to 16 characters", () => {
     const long = "あ".repeat(40);
     const raw = JSON.stringify({
       headline: long,
@@ -217,9 +217,9 @@ describe("parseDriverAnalysis", () => {
       urgency: "low",
     });
     const result = parseDriverAnalysis(raw);
-    expect(result.headline).toBe("あ".repeat(24));
-    expect(result.action).toBe("あ".repeat(24));
-    expect(result.watch).toBe("あ".repeat(24));
+    expect(result.headline).toBe("あ".repeat(16));
+    expect(result.action).toBe("あ".repeat(16));
+    expect(result.watch).toBe("あ".repeat(16));
   });
 
   it("falls back to raw text for pure prose", () => {

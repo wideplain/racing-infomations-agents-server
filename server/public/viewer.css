@@ -10,16 +10,18 @@
 
 /* ── Variables ───────────────────────────────────────────────────────────── */
 :root {
-  --surface: #ffffff;
-  --text: #1c1c1e;
-  --muted: #8e8e93;
-  --warn: #d70015;
-  --pane-radius: 10px;
+  --surface: #172132;
+  --surface-strong: #121a27;
+  --text: #eff4fa;
+  --muted: #96a5b9;
+  --line: #2b374b;
+  --warn: #ff5d5d;
+  --pane-radius: 12px;
   --pane-padding: 10px 14px;
-  --accent-pitwall: #ff9500;
-  --accent-driver: #34c759;
-  --tl-urgency-medium: #c77700;
-  --tl-urgency-high: #d70015;
+  --accent-pitwall: #ff5d3d;
+  --accent-driver: #4bd99a;
+  --tl-urgency-medium: #ffba58;
+  --tl-urgency-high: #ff5d5d;
 }
 
 /* ── Base / hidden guard ─────────────────────────────────────────────────── */
@@ -36,6 +38,8 @@ body {
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
+  background: radial-gradient(circle at 82% 0%, #1b2a43 0, #0b1019 38rem);
+  color: var(--text);
 }
 main {
   flex: 1 1 auto;
@@ -45,17 +49,20 @@ main {
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
-/* style.css's default header allows wrapping, which on a phone splits the row into multiple
-   lines (and even wraps "API Key" onto two lines by itself) and eats vertical space the content
-   below needs. Keep everything on one row, letting the title truncate first. */
 header {
   flex: 0 0 auto;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
+  align-items: center;
 }
+.viewer-brand { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.viewer-brand-mark { display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; background: var(--accent-pitwall); color: #151a22; font-weight: 900; letter-spacing: -.08em; }
+.viewer-eyebrow { margin: 0 0 2px; color: var(--muted); font-size: .62rem; font-weight: 800; letter-spacing: .13em; }
 #pageTitle {
-  flex: 1 1 auto;
   min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 1.1rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -63,35 +70,35 @@ header {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex: 0 0 auto;
   min-width: 0;
 }
 .view-tabs {
   display: flex;
-  gap: 4px;
-  background: #e5e5ea;
-  border-radius: 8px;
-  padding: 3px;
+  gap: 6px;
   flex: 0 0 auto;
 }
 .view-tab {
-  background: transparent;
-  color: var(--text);
-  border-radius: 6px;
-  padding: 6px 12px;
+  background: rgba(23, 33, 50, .84);
+  color: var(--muted);
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
   font-size: 0.9rem;
-  font-weight: 600;
+  font-weight: normal;
   /* Tab labels are short by design; wrapping them turns the header into two rows and eats the
      content area on a phone. */
   white-space: nowrap;
 }
 .view-tab.active {
-  background: var(--surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  background: var(--accent-pitwall);
+  color: #151a22;
 }
 #hudToggle {
   background: var(--accent-driver);
+  color: #102018;
+  font-weight: 800;
   font-size: 0.9rem;
   padding: 6px 12px;
   white-space: nowrap;
@@ -103,7 +110,9 @@ header {
 }
 .apikey-details summary {
   white-space: nowrap;
+  color: var(--muted);
 }
+.apikey-details input { background: var(--surface-strong); border: 0; color: var(--text); }
 
 @media (max-width: 700px) {
   header {
@@ -138,13 +147,18 @@ header {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
-  padding: 4px 0 6px;
-  border-bottom: 1px solid #e5e5ea;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: rgba(18, 26, 39, .9);
+  border-radius: var(--pane-radius);
   font-size: 0.8rem;
   color: var(--muted);
 }
 .status-item {
   white-space: nowrap;
+  font-size: .72rem;
+  font-weight: 750;
+  letter-spacing: .025em;
 }
 .status-item.status-error {
   color: var(--warn);
@@ -163,7 +177,7 @@ header {
    Desktop: transcript + analysis side by side, filling the full remaining height. */
 #viewerSection {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   grid-template-areas: "segments analyses";
@@ -232,13 +246,33 @@ header {
   align-items: center;
   gap: 10px;
 }
+.route-playback button, #routeNamesRefresh {
+  background: var(--accent-pitwall);
+  color: #151a22;
+  font-weight: 800;
+}
+.route-playback select {
+  background: var(--surface-strong);
+  border: 0;
+  color: var(--text);
+}
 .route-time-label {
   color: var(--muted);
   font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
+.route-weather {
+  flex: 0 0 auto;
+  background: var(--surface);
+  border-radius: var(--pane-radius);
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
 #routeSlider {
   width: 100%;
+  accent-color: var(--accent-pitwall);
 }
 #routeHistoryDetails {
   flex: 0 1 auto;
@@ -253,16 +287,16 @@ header {
 .route-history th, .route-history td {
   text-align: left;
   padding: 4px 8px;
-  border-bottom: 1px solid #e5e5ea;
+  border-bottom: 1px solid rgba(150, 165, 185, .16);
 }
 .route-history tr.route-history-row {
   cursor: pointer;
 }
 .route-history tr.route-history-row:hover {
-  background: #f2f2f7;
+  background: rgba(75, 217, 154, .08);
 }
 .route-history tr.route-history-row.active {
-  background: #d0e8ff;
+  background: rgba(255, 93, 61, .14);
 }
 
 /* The ルート更新 button drives the 通過地点 pane directly below it (it (re)fetches the place
@@ -296,7 +330,7 @@ header {
   align-items: baseline;
   gap: 10px;
   padding: 4px 8px;
-  border-bottom: 1px solid #e5e5ea;
+  border-bottom: 1px solid rgba(150, 165, 185, .16);
   font-size: 0.9rem;
 }
 .route-names-time {
@@ -315,7 +349,7 @@ header {
 }
 #map {
   border-radius: var(--pane-radius);
-  background: #e5e5ea;
+  background: var(--surface-strong);
 }
 /* Playback position marker, replacing Leaflet's L.circleMarker. */
 .route-marker {
@@ -323,7 +357,7 @@ header {
   height: 14px;
   border-radius: 50%;
   background: #0a84ff;
-  border: 2px solid #ffffff;
+  border: 2px solid var(--surface-strong);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
@@ -341,6 +375,7 @@ header {
 .viewer-pane summary {
   font-size: 1.1rem;
   font-weight: bold;
+  color: var(--text);
   cursor: pointer;
   padding: 4px 0;
   list-style: none;
@@ -374,9 +409,18 @@ header {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
+/* Transcript and route data use the same white data cards as main's transcript panel. Analysis
+   entries are already cards individually, so their scroller intentionally stays transparent. */
+#segments,
+#routeHistory,
+#routeNamesList {
+  background: linear-gradient(145deg, rgba(23, 33, 50, .98), rgba(18, 26, 39, .98));
+  border-radius: var(--pane-radius);
+  padding: 8px 12px;
+}
 
 .analysis-entry {
-  background: var(--surface);
+  background: linear-gradient(145deg, rgba(23, 33, 50, .98), rgba(18, 26, 39, .98));
   border-radius: var(--pane-radius);
   padding: var(--pane-padding);
   margin-bottom: 10px;
@@ -395,15 +439,21 @@ header {
   padding: 1px 6px;
   margin-left: 6px;
 }
-.analysis-entry .entry-mode.pitwall { background: var(--accent-pitwall); }
+.analysis-entry .entry-mode.pitwall { background: var(--accent-pitwall); color: #151a22; }
 .analysis-entry h4 { margin: 8px 0 2px; font-size: 0.9rem; }
 .analysis-entry .warn { color: var(--warn); }
 .analysis-entry .status-queued, .analysis-entry .status-running { color: var(--muted); }
 
+/* Map controls belong to a third-party stylesheet; recolor their small chrome so the map is
+   still readable without switching the surrounding route screen back to a light UI. */
+.maplibregl-ctrl-group { background: var(--surface-strong); box-shadow: none; }
+.maplibregl-ctrl-group button + button { border-top-color: var(--line); }
+.maplibregl-ctrl-group button span { filter: invert(1); }
+
 /* Driver mode: terse by design, so it's rendered noticeably larger than the other modes. This
    is the in-timeline rendering on the normal light page — it intentionally does NOT use the
    dark driver-HUD palette below, just the same shared variables as everything else here. */
-.analysis-entry .entry-mode.driver { background: var(--accent-driver); }
+.analysis-entry .entry-mode.driver { background: var(--accent-driver); color: #102018; }
 .analysis-entry .driver-headline {
   font-size: 1.4rem;
   font-weight: bold;
@@ -429,9 +479,8 @@ header {
 
 /* ── Driver HUD ──────────────────────────────────────────────────────────────
    Full-viewport, no-scroll display for the person driving/working, who can only glance for a
-   second. Dark background + high-luminance text maximizes contrast for outdoor/in-motion
-   viewing (deliberately not matched to the rest of the page). Urgency drives a bright accent
-   edge bar + label color rather than a pale background wash, so it reads peripherally.
+   second. It deliberately reuses the viewer's ordinary light card treatment so opening driver
+   mode still feels like the main viewer instead of a separate dashboard.
    grid-template-areas gives every element a permanent slot (including `watch`'s row, which
    stays reserved even when empty) so nothing shifts position between updates. Sized to fit an
    iPhone SE (375x667) in one screenful: font sizes are vw-based with clamps, and viewer.js
@@ -444,47 +493,37 @@ body.hud-open { overflow: hidden; }
   /* Above MapLibre's controls (they default to z-index ~2-3), otherwise the map's +/- buttons
      punch through the overlay. */
   z-index: 2000;
-  padding: 16px 18px;
-  background: #0b0b0c;
-  color: #f5f5f7;
-  /* Left-aligned, not centered: with centered text every wrapped line starts at a different
-     x-position, so a glance has to hunt for the start of each line. A fixed left edge lets the
-     eye drop straight down the same rail. */
+  padding: 12px;
+  background: #0b1019;
+  color: var(--text);
   text-align: left;
   overflow: hidden;
   --hud-scale: 1;
-  --hud-accent: #00e5ff;
-  --hud-accent-bar: 6px;
-  border-top: var(--hud-accent-bar) solid var(--hud-accent);
-  transition: border-top-width 0.15s, border-color 0.15s;
+  --hud-accent: var(--accent-driver);
 }
 .driver-hud[hidden] { display: none; }
-.driver-hud.urgency-medium { --hud-accent: #ffb300; }
-.driver-hud.urgency-high { --hud-accent: #ff1744; --hud-accent-bar: 14px; }
+.driver-hud.urgency-medium { --hud-accent: var(--accent-pitwall); }
+.driver-hud.urgency-high { --hud-accent: var(--warn); }
 
 .driver-hud .hud-body {
   height: 100%;
   min-height: 0;
+  padding: 18px;
+  background: var(--surface);
+  border-radius: var(--pane-radius);
   display: grid;
   grid-template-areas:
     "urgency"
     "headline"
     "action"
     "watch"
-    "meta";
-  /* Status row pinned to the top, content block anchored just under it, and the slack pushed
-     to the bottom — so urgency/headline/action/watch always sit at the same heights regardless
-     of text length. A glance lands in the same place every time instead of hunting a
-     vertically-centered block that moves as the text grows. The bottom slack is deliberate
-     breathing room, not wasted space: it keeps the eye from having to scan low on the screen. */
-  grid-template-rows: auto auto auto auto 1fr;
+    "."
+    "forecast";
+  grid-template-rows: auto auto auto auto 1fr auto;
   justify-items: stretch;
-  row-gap: 2.2vh;
+  row-gap: 1.8vh;
   overflow: hidden;
 }
-/* A filled badge rather than colored text: at a glance the eye registers the block of color
-   before it can read the word, which is the point of showing urgency at all. Sits on the same
-   top row as the freshness stamp so both status facts are read in one fixation. */
 .driver-hud .hud-urgency {
   grid-area: urgency;
   margin: 0;
@@ -492,11 +531,10 @@ body.hud-open { overflow: hidden; }
   padding: 4px 12px;
   /* Leaves room for the age stamp that viewer.js positions at the row's right edge. */
   margin-right: 8.5rem;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--hud-accent);
-  color: #0b0b0c;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  color: white;
+  font-weight: bold;
   font-size: calc(clamp(0.85rem, 3.6vw, 1.15rem) * var(--hud-scale));
 }
 .driver-hud .hud-headline {
@@ -507,16 +545,11 @@ body.hud-open { overflow: hidden; }
   line-height: 1.15;
   font-size: calc(clamp(2.3rem, 12.5vw, 4.2rem) * var(--hud-scale));
 }
-/* At high urgency the headline itself turns accent-colored so it's identifiable without
-   reading, alongside the thicker top bar. */
-.driver-hud.urgency-high .hud-headline { color: var(--hud-accent); }
-/* action and watch get a left rule so the eye can tell them apart from the headline without
-   reading — one is "what to do", the other is "what to watch for". */
 .driver-hud .hud-action {
   grid-area: action;
   margin: 0;
   padding-left: 12px;
-  border-left: 4px solid #7de3ff;
+  border-left: 0;
   font-weight: 600;
   line-height: 1.3;
   font-size: calc(clamp(1.35rem, 6.8vw, 2.2rem) * var(--hud-scale));
@@ -525,10 +558,10 @@ body.hud-open { overflow: hidden; }
   grid-area: watch;
   margin: 0;
   padding-left: 12px;
-  border-left: 4px solid #ff1744;
+  border-left: 0;
   line-height: 1.3;
   font-size: calc(clamp(1.1rem, 5.4vw, 1.8rem) * var(--hud-scale));
-  color: #ff6b81;
+  color: var(--warn);
 }
 /* viewer.js sets [hidden] when there's no caution. Keep the row's height reserved so the
    headline and action don't jump between analyses that do and don't have one. */
@@ -536,9 +569,6 @@ body.hud-open { overflow: hidden; }
   display: block;
   visibility: hidden;
 }
-/* Freshness matters more than the wall-clock time: acting on a stale summary is the real hazard.
-   It's pinned to the top-right, level with the urgency badge, rather than at the bottom edge —
-   at the bottom it sat outside the glance path and an old summary could pass for a current one. */
 .driver-hud .hud-meta {
   grid-area: urgency;
   justify-self: end;
@@ -547,23 +577,30 @@ body.hud-open { overflow: hidden; }
   margin: 0 2.6rem 0 0;
   font-size: calc(clamp(0.85rem, 3.6vw, 1.1rem) * var(--hud-scale));
   font-weight: 700;
-  opacity: 0.55;
+  color: var(--muted);
   text-align: right;
 }
 .driver-hud .hud-meta.stale {
-  color: #0b0b0c;
-  background: #ffb300;
+  color: var(--text);
+  background: rgba(255, 186, 88, .14);
   padding: 4px 10px;
-  border-radius: 999px;
-  opacity: 1;
+  border-radius: 6px;
+}
+.driver-hud .hud-forecast {
+  grid-area: forecast;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  font-size: calc(clamp(1.2rem, 5.4vw, 1.8rem) * var(--hud-scale));
+  font-weight: bold;
 }
 .driver-hud .hud-exit {
   position: absolute;
   top: 8px;
   right: 8px;
   background: transparent;
-  color: inherit;
-  opacity: 0.45;
+  color: var(--muted);
   font-size: 1.4rem;
   line-height: 1;
   padding: 8px 12px;

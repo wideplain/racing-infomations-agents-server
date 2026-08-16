@@ -15,7 +15,19 @@ async function api(path, opts = {}) {
     ...opts,
     headers: { ...apiHeaders(), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
   });
-  if (!res.ok) throw new Error(`${opts.method || "GET"} ${path} -> ${res.status}`);
+  if (!res.ok) {
+    let apiError = "";
+    try {
+      const body = await res.json();
+      apiError = typeof body?.error === "string" ? body.error : typeof body?.message === "string" ? body.message : "";
+    } catch {
+      // A proxy or an older server can return a non-JSON error page. The status still identifies it.
+    }
+    const error = new Error(`${opts.method || "GET"} ${path} -> ${res.status}`);
+    error.statusCode = res.status;
+    error.apiError = apiError;
+    throw error;
+  }
   return res.status === 204 ? null : res.json();
 }
 
@@ -254,12 +266,20 @@ const hudHeadline = document.getElementById("hudHeadline");
 const hudAction = document.getElementById("hudAction");
 const hudWatch = document.getElementById("hudWatch");
 const hudMeta = document.getElementById("hudMeta");
+const hudForecast = document.getElementById("hudForecast");
 const hudToggle = document.getElementById("hudToggle");
 const hudExit = document.getElementById("hudExit");
 
-let hudVisible =
-  new URLSearchParams(location.search).get("hud") === "1" ||
-  localStorage.getItem("driverHud") === "1";
+let hudVisible = new URLSearchParams(location.search).get("hud") === "1";
+let hudWeather = null;
+let hudSnapshot = null;
+let hudWeatherSessionId = null;
+let hudWeatherFetchedAt = 0;
+let hudWeatherInFlight = false;
+let lastHudResult = null;
+const HUD_WEATHER_REFRESH_MS = 60_000;
+// A day-ahead forecast is useful in a planning screen, but not as a glanceable driver cue.
+const HUD_FORECAST_MAX_ETA_MINUTES = 180;
 
 function setHudVisible(visible) {
   hudVisible = visible;
@@ -267,12 +287,21 @@ function setHudVisible(visible) {
   // The HUD is position:fixed, but the page behind it still scrolls, which lets a stray swipe
   // drag the underlying viewer around under the overlay. Lock the body while it's up.
   document.body.classList.toggle("hud-open", visible);
-  localStorage.setItem("driverHud", visible ? "1" : "0");
-  if (visible) refreshAnalyses();
+  hudToggle.setAttribute("aria-expanded", String(visible));
+  if (visible) {
+    refreshAnalyses();
+    refreshHudWeather(true);
+  }
 }
 
-hudToggle.addEventListener("click", () => setHudVisible(true));
+hudToggle.addEventListener("click", () => {
+  const targetSession = requestedSession || "latest";
+  location.assign(`/driver.html?session=${encodeURIComponent(targetSession)}`);
+});
 hudExit.addEventListener("click", () => setHudVisible(false));
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && hudVisible) setHudVisible(false);
+});
 if (hudVisible) setHudVisible(true);
 
 /** Shrinks the HUD text until it fits the viewport — the model's 24-char limit plus a small
@@ -310,40 +339,69 @@ function setHudMeta(iso, extra) {
 
 function updateDriverHud(list) {
   if (!hudVisible) return;
+  if (hudWeatherSessionId !== sessionId) {
+    hudWeather = null;
+    hudSnapshot = null;
+    hudWeatherSessionId = sessionId;
+    hudWeatherFetchedAt = 0;
+  }
+  if (!hudWeatherInFlight && Date.now() - hudWeatherFetchedAt >= HUD_WEATHER_REFRESH_MS) {
+    refreshHudWeather();
+  }
   const driverEntries = list.filter((a) => a.mode === "driver");
   const latest = driverEntries[driverEntries.length - 1];
+  const latestCompleted = [...driverEntries].reverse().find(
+    (a) => a.status === "done" && a.result,
+  );
 
   driverHud.classList.remove("urgency-medium", "urgency-high");
   hudMeta.classList.remove("stale");
 
   if (!latest) {
+    lastHudResult = null;
     hudUrgency.textContent = "緊急度: 低";
     hudHeadline.textContent = "ドライバー解析待ち";
     hudAction.hidden = true;
     hudWatch.hidden = true;
+    renderHudRainForecast({});
     hudMeta.textContent = "アプリで解析を実行すると表示されます（設定の「ドライバー要約も生成」がONのとき）";
     fitHudText();
     return;
   }
 
   if (latest.status === "queued" || latest.status === "running") {
+    // Keep a completed brief on screen while its replacement is generated. A driver cannot act
+    // on a spinner, but can still use the prior instruction if it is clearly marked as updating.
+    if (latestCompleted) {
+      renderDriverHudResult(latestCompleted, "新しい解析を更新中");
+      return;
+    }
     hudHeadline.textContent = "解析中…";
+    lastHudResult = null;
     hudAction.hidden = true;
     hudWatch.hidden = true;
+    renderHudRainForecast({});
     setHudMeta(latest.created_at);
     fitHudText();
     return;
   }
   if (latest.status === "error") {
+    lastHudResult = null;
     hudHeadline.textContent = "解析エラー";
     hudAction.hidden = true;
     hudWatch.hidden = true;
+    renderHudRainForecast({});
     setHudMeta(latest.created_at, latest.error || "");
     fitHudText();
     return;
   }
 
-  const r = latest.result || {};
+  renderDriverHudResult(latest);
+}
+
+function renderDriverHudResult(entry, extraMeta = "") {
+  const r = entry.result || {};
+  lastHudResult = r;
   const urgencyLabel = { low: "低", medium: "中", high: "高" }[r.urgency] || "低";
   hudUrgency.textContent = `緊急度: ${urgencyLabel}`;
   hudHeadline.textContent = r.headline || "-";
@@ -357,8 +415,71 @@ function updateDriverHud(list) {
   }
   if (r.urgency === "medium") driverHud.classList.add("urgency-medium");
   if (r.urgency === "high") driverHud.classList.add("urgency-high");
-  setHudMeta(latest.created_at);
+  renderHudRainForecast(r);
+  setHudMeta(entry.created_at, extraMeta);
   fitHudText();
+}
+
+function renderHudRainForecast(result) {
+  const etaMinutes = Number(result.rainEtaMinutes ?? hudWeather?.rainForecast?.etaMinutes);
+  const probability = Number(result.rainProbability ?? hudWeather?.rainForecast?.probability);
+  if (Number.isFinite(etaMinutes) && etaMinutes <= HUD_FORECAST_MAX_ETA_MINUTES && Number.isFinite(probability)) {
+    const when = etaMinutes <= 5 ? "まもなく" : `${etaMinutes}分後`;
+    renderHudWeatherLine(`${when} ☔️`);
+    hudForecast.hidden = false;
+    return;
+  }
+  const weatherValue = result.forecastWeather ?? hudWeather?.weatherForecast?.weather;
+  const weather = typeof weatherValue === "string" ? weatherValue.trim() : "";
+  const forecastEta = Number(result.forecastEtaMinutes ?? hudWeather?.weatherForecast?.etaMinutes);
+  if (!weather || !Number.isFinite(forecastEta) || forecastEta > HUD_FORECAST_MAX_ETA_MINUTES) {
+    renderHudCurrentWeather();
+    return;
+  }
+  const when = forecastEta <= 5 ? "まもなく" : `${forecastEta}分後`;
+  const icon = weather.includes("晴") ? "☀️" : weather.includes("雪") ? "❄️" : "☁️";
+  renderHudWeatherLine(`${when} ${icon}`);
+}
+
+function renderHudCurrentWeather() {
+  renderHudWeatherLine("");
+}
+
+function renderHudWeatherLine(prefix) {
+  const details = [];
+  if (hudSnapshot?.isRaining === true) details.push("☔️");
+  if (hudSnapshot?.isRaining === false) details.push("☀️");
+  if (typeof hudSnapshot?.temperatureC === "number") details.push(`${hudSnapshot.temperatureC.toFixed(0)}°`);
+  if (typeof hudSnapshot?.humidityPercent === "number") details.push(`湿度${hudSnapshot.humidityPercent.toFixed(0)}%`);
+  if (typeof hudSnapshot?.windSpeedMs === "number") details.push(`風${hudSnapshot.windSpeedMs.toFixed(1)}m/s`);
+  if (!prefix && details.length === 0) {
+    hudForecast.hidden = true;
+    return;
+  }
+  hudForecast.textContent = [prefix, details.join("  ")].filter(Boolean).join("  ·  ");
+  hudForecast.hidden = false;
+}
+
+async function refreshHudWeather(force = false) {
+  if (!hudVisible || !sessionId || hudWeatherInFlight) return;
+  if (!force && Date.now() - hudWeatherFetchedAt < HUD_WEATHER_REFRESH_MS) return;
+  const requestedSessionId = sessionId;
+  hudWeatherInFlight = true;
+  try {
+    const response = await api(`/api/sessions/${requestedSessionId}/weather`);
+    if (sessionId !== requestedSessionId) return;
+    hudWeather = response.weather || null;
+    hudSnapshot = response.snapshot || null;
+    hudWeatherSessionId = requestedSessionId;
+    hudWeatherFetchedAt = Date.now();
+    renderHudRainForecast(lastHudResult || {});
+    fitHudText();
+  } catch (err) {
+    console.warn("weather refresh failed", err);
+    // Retry on the next HUD poll; do not erase a still-useful prior forecast after a transient failure.
+  } finally {
+    hudWeatherInFlight = false;
+  }
 }
 
 // ── View tabs (ライブ / ルート・時間) ───────────────────────────────────────
@@ -387,6 +508,7 @@ const routePlayBtn = document.getElementById("routePlay");
 const routeSpeedSelect = document.getElementById("routeSpeed");
 const routeTimeLabel = document.getElementById("routeTimeLabel");
 const routeHistoryEl = document.getElementById("routeHistory");
+const routeWeatherEl = document.getElementById("routeWeather");
 
 const ROUTE_TRACK_MAX_DRAW = 5000;
 const ROUTE_BUCKET_MS = 5 * 60 * 1000;
@@ -439,6 +561,8 @@ let routeLastId = 0;
 let routePollTimer = null;
 let routeLoaded = false;
 let routeLoading = false;
+let routeWeatherFetchedAt = 0;
+let routeWeatherSessionId = null;
 
 async function loadRouteHistoryFull() {
   if (!sessionId || routeLoading) return;
@@ -476,6 +600,7 @@ async function pollRouteHistory() {
   } catch (err) {
     console.error(err);
   }
+  if (Date.now() - routeWeatherFetchedAt >= 60_000) refreshRouteWeather();
 }
 
 function startRouteView() {
@@ -484,6 +609,7 @@ function startRouteView() {
   if (routePollTimer === null) {
     routePollTimer = setInterval(pollRouteHistory, 2000);
   }
+  refreshRouteWeather(true);
 }
 
 function stopRouteView() {
@@ -492,6 +618,39 @@ function stopRouteView() {
     clearInterval(routePollTimer);
     routePollTimer = null;
   }
+}
+
+async function refreshRouteWeather(force = false) {
+  if (!sessionId || !routeWeatherEl) return;
+  if (!force && Date.now() - routeWeatherFetchedAt < 60_000) return;
+  const requestedSessionId = sessionId;
+  try {
+    const response = await api(`/api/sessions/${requestedSessionId}/weather`);
+    if (sessionId !== requestedSessionId) return;
+    routeWeatherSessionId = requestedSessionId;
+    routeWeatherFetchedAt = Date.now();
+    renderRouteWeather(response.snapshot || null);
+  } catch (err) {
+    console.warn("route weather refresh failed", err);
+    routeWeatherEl.textContent = "天気の取得に失敗しました";
+  }
+}
+
+function renderRouteWeather(snapshot) {
+  if (!snapshot) {
+    routeWeatherEl.textContent = "現在地点の天気を記録待ち";
+    return;
+  }
+  const rain = snapshot.isRaining === true ? "☔ 雨" : snapshot.isRaining === false ? "☀️ 降水なし" : "天気未取得";
+  const values = [
+    typeof snapshot.temperatureC === "number" ? `${snapshot.temperatureC.toFixed(1)}℃` : null,
+    typeof snapshot.humidityPercent === "number" ? `湿度 ${snapshot.humidityPercent}%` : null,
+    typeof snapshot.windSpeedMs === "number" ? `風 ${snapshot.windSpeedMs.toFixed(1)}m/s` : null,
+  ].filter(Boolean);
+  const station = snapshot.amedasStationDistanceKm === null || snapshot.amedasStationDistanceKm === undefined
+    ? ""
+    : ` · AMeDAS ${snapshot.amedasStationDistanceKm.toFixed(1)}km`;
+  routeWeatherEl.textContent = `${rain}${values.length ? ` · ${values.join(" · ")}` : ""}${station}`;
 }
 
 function decimate(arr, maxLen) {
@@ -723,12 +882,14 @@ const LOCATION_SEND_INTERVAL_MS = 3000;
 
 let locationWatchId = null;
 let locationSendBuffer = [];
+let locationSendInFlight = false;
 
 // Maps the feature's existing long-form messages to a short label that fits the status bar.
 const LOCATION_STATUS_LABELS = {
   "この環境では位置情報を利用できません（HTTPS接続が必要です）": "HTTPS必須",
   "この環境では位置情報を利用できません": "HTTPS必須",
   "位置送信中": "送信中",
+  "位置情報の送信に失敗しました": "送信失敗・再試行中",
   "位置情報の権限がありません": "権限なし",
   "位置情報を取得できません": "取得不可",
 };
@@ -753,20 +914,35 @@ function locationSendPointFromPosition(position) {
   return point;
 }
 
-function flushLocationSendBuffer() {
-  if (locationSendBuffer.length === 0) return;
+async function flushLocationSendBuffer() {
+  if (locationSendInFlight || locationSendBuffer.length === 0) return;
   if (!sessionId) {
     locationSendBuffer = [];
     return;
   }
-  const batch = locationSendBuffer;
-  locationSendBuffer = [];
-  api(`/api/sessions/${sessionId}/locations`, {
-    method: "POST",
-    body: JSON.stringify({ locations: batch }),
-  }).catch((err) => {
-    console.warn("location send failed, dropping batch", err);
-  });
+  const batch = locationSendBuffer.splice(0, LOCATION_SEND_BATCH_SIZE);
+  locationSendInFlight = true;
+  try {
+    await api(`/api/sessions/${sessionId}/locations`, {
+      method: "POST",
+      body: JSON.stringify({ locations: batch }),
+    });
+    setSendLocationStatus("位置送信中");
+  } catch (err) {
+    console.warn("location send failed; will retry", err);
+    locationSendBuffer = [...batch, ...locationSendBuffer].slice(0, LOCATION_SEND_BUFFER_MAX);
+    const statusCode = typeof err?.statusCode === "number" ? err.statusCode : undefined;
+    const apiError = typeof err?.apiError === "string" ? err.apiError : "";
+    if (statusCode === 404 && apiError === "not_found") {
+      setSendLocationStatus("セッション未検出 (404)");
+    } else if (statusCode === 404 && apiError.includes("Route POST")) {
+      setSendLocationStatus("位置情報API未反映 (404)");
+    } else {
+      setSendLocationStatus(statusCode ? `送信失敗 (${statusCode})` : "位置情報の送信に失敗しました");
+    }
+  } finally {
+    locationSendInFlight = false;
+  }
 }
 
 function pushLocationSendPoint(point) {
