@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAnalysis, parsePitwallAnalysis } from "../src/analysis/parse.js";
+import { parseAnalysis, parsePitwallAnalysis, parseDriverAnalysis } from "../src/analysis/parse.js";
 
 describe("parseAnalysis", () => {
   it("parses a plain JSON object", () => {
@@ -149,5 +149,84 @@ describe("parsePitwallAnalysis", () => {
     const raw = JSON.stringify({ statusSummary: "s", confidence: "urgent" });
     const result = parsePitwallAnalysis(raw);
     expect(result.parseFallback).toBe(true);
+  });
+});
+
+describe("parseDriverAnalysis", () => {
+  it("parses a plain JSON object", () => {
+    const raw = JSON.stringify({
+      headline: "1周目走行中",
+      action: "点検確認",
+      watch: "エンジン音に注意",
+      urgency: "medium",
+    });
+    const result = parseDriverAnalysis(raw);
+    expect(result.parseFallback).toBe(false);
+    expect(result.headline).toBe("1周目走行中");
+    expect(result.action).toBe("点検確認");
+    expect(result.watch).toBe("エンジン音に注意");
+    expect(result.urgency).toBe("medium");
+  });
+
+  it("parses JSON wrapped in a code fence", () => {
+    const raw = [
+      "```json",
+      JSON.stringify({
+        headline: "h",
+        action: "a",
+        watch: null,
+        urgency: "low",
+      }),
+      "```",
+    ].join("\n");
+    const result = parseDriverAnalysis(raw);
+    expect(result.parseFallback).toBe(false);
+    expect(result.headline).toBe("h");
+  });
+
+  it("extracts JSON preceded by prose", () => {
+    const json = JSON.stringify({
+      headline: "h",
+      action: "a",
+      watch: null,
+      urgency: "low",
+    });
+    const raw = `以下が結果です。\n${json}\nご確認ください。`;
+    const result = parseDriverAnalysis(raw);
+    expect(result.parseFallback).toBe(false);
+    expect(result.headline).toBe("h");
+  });
+
+  it("preserves watch: null rather than coercing to a string", () => {
+    const raw = JSON.stringify({
+      headline: "h",
+      action: "a",
+      watch: null,
+      urgency: "low",
+    });
+    const result = parseDriverAnalysis(raw);
+    expect(result.watch).toBeNull();
+  });
+
+  it("hard-truncates headline/action/watch to 24 characters", () => {
+    const long = "あ".repeat(40);
+    const raw = JSON.stringify({
+      headline: long,
+      action: long,
+      watch: long,
+      urgency: "low",
+    });
+    const result = parseDriverAnalysis(raw);
+    expect(result.headline).toBe("あ".repeat(24));
+    expect(result.action).toBe("あ".repeat(24));
+    expect(result.watch).toBe("あ".repeat(24));
+  });
+
+  it("falls back to raw text for pure prose", () => {
+    const raw = "これはJSONではない普通の文章です。";
+    const result = parseDriverAnalysis(raw);
+    expect(result.parseFallback).toBe(true);
+    expect(result.action).toBe("");
+    expect(result.watch).toBeNull();
   });
 });

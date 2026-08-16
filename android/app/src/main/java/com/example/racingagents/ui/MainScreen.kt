@@ -1,5 +1,6 @@
 package com.example.racingagents.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +70,7 @@ fun MainScreen(
     var showInstructionDialog by remember { mutableStateOf(false) }
     var transcriptExpanded by remember { mutableStateOf(true) }
     var showNewSessionConfirm by remember { mutableStateOf(false) }
+    var showQrDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.transcript.size, uiState.livePartialText) {
         val itemCount = uiState.transcript.size + if (uiState.livePartialText.isNotBlank()) 1 else 0
@@ -112,16 +114,21 @@ fun MainScreen(
                             val context = androidx.compose.ui.platform.LocalContext.current
                             AssistChip(
                                 onClick = {
-                                    val url = viewerUrl(uiState.settings.serverUrl, currentSessionId)
+                                    val url = viewerUrl(uiState.settings.serverUrl)
                                     copyToClipboard(context, url)
                                     android.widget.Toast.makeText(context, "ビュワーURLをコピーしました", android.widget.Toast.LENGTH_SHORT).show()
                                 },
                                 label = { Text("👁 共有") },
                             )
+                            Spacer(Modifier.width(8.dp))
+                            AssistChip(
+                                onClick = { showQrDialog = true },
+                                label = { Text("📱 QR") },
+                            )
                         }
                     }
                     Spacer(Modifier.height(0.dp))
-                    Row {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = {
                             onRequestPermissions()
                             if (uiState.listeningState == com.example.racingagents.stt.ListeningState.IDLE) {
@@ -291,6 +298,8 @@ fun MainScreen(
             onAutoAnalysisIntervalChanged = viewModel::onAutoAnalysisIntervalChanged,
             onAutoAnalysisCharThresholdChanged = viewModel::onAutoAnalysisCharThresholdChanged,
             onAnalysisModeChanged = viewModel::onAnalysisModeChanged,
+            onDriverSummaryEnabledChanged = viewModel::onDriverSummaryEnabledChanged,
+            onSttLanguageChanged = viewModel::onSttLanguageChanged,
             onDismiss = { viewModel.closeSettingsSheet() },
         )
     }
@@ -332,6 +341,75 @@ fun MainScreen(
             },
         )
     }
+
+    if (showQrDialog) {
+        QrCodeDialog(
+            serverUrl = uiState.settings.serverUrl,
+            onDismiss = { showQrDialog = false },
+        )
+    }
+}
+
+/** Opened via the "📱 QR" chip: shows the same viewer URL as "👁 共有" as a scannable QR code,
+ * for handing the current session off to another device (laptop, passenger's phone) in person. */
+@Composable
+private fun QrCodeDialog(
+    serverUrl: String,
+    onDismiss: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("このセッションのQR") },
+        text = {
+            if (serverUrl.isBlank()) {
+                Text("サーバーURLが未設定です")
+            } else {
+                val url = viewerUrl(serverUrl)
+                val qrSizePx = with(androidx.compose.ui.platform.LocalDensity.current) { 240.dp.toPx().toInt() }
+                val qrBitmap = rememberQrCodeBitmap(url, qrSizePx)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    if (qrBitmap != null) {
+                        // A QR code needs light modules on a dark background (or vice versa) with
+                        // strong contrast to scan reliably; a white box guarantees that regardless
+                        // of the app's (possibly dark) theme.
+                        Box(
+                            modifier = Modifier
+                                .background(Color.White)
+                                .padding(8.dp),
+                        ) {
+                            androidx.compose.foundation.Image(
+                                bitmap = qrBitmap,
+                                contentDescription = "セッションQRコード",
+                                modifier = Modifier.width(240.dp).height(240.dp),
+                            )
+                        }
+                    } else {
+                        Text("QRコードを生成できませんでした")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = url,
+                            color = Color.Gray,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (serverUrl.isNotBlank()) {
+                TextButton(onClick = {
+                    copyToClipboard(context, viewerUrl(serverUrl))
+                    android.widget.Toast.makeText(context, "ビュワーURLをコピーしました", android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text("コピー") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("閉じる") }
+        },
+    )
 }
 
 /** Opened via the "📝 メモを添えて解析" chip: attach a free-text note (context the STT missed, a
@@ -411,9 +489,12 @@ private fun sanitizeUrlInput(raw: String): String =
 
 /** Builds a shareable read-only viewer link for the currently active session, so someone
  * watching on a laptop/tablet can follow along without controlling the phone. */
-private fun viewerUrl(serverUrl: String, sessionId: String): String {
+private fun viewerUrl(serverUrl: String): String {
     val base = if (serverUrl.endsWith("/")) serverUrl.dropLast(1) else serverUrl
-    return "$base/viewer.html?session=$sessionId"
+    // "latest" rather than the current session id: the viewer follows whichever session is
+    // newest, so a link handed to someone watching (or bookmarked on the driver's phone) keeps
+    // updating after 新規セッション instead of freezing on a session that stopped receiving data.
+    return "$base/viewer.html?session=latest"
 }
 
 private fun copyToClipboard(context: android.content.Context, text: String) {
@@ -432,6 +513,8 @@ private fun SettingsSheet(
     onAutoAnalysisIntervalChanged: (Int) -> Unit,
     onAutoAnalysisCharThresholdChanged: (Int) -> Unit,
     onAnalysisModeChanged: (String) -> Unit,
+    onDriverSummaryEnabledChanged: (Boolean) -> Unit,
+    onSttLanguageChanged: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -497,20 +580,53 @@ private fun SettingsSheet(
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    Text("ピットウォールモード")
-                    Text(
-                        if (settings.analysisMode == "pitwall") "ピットウォール" else "通常解析",
-                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                        color = Color.Gray,
+            Text("解析モード")
+            Spacer(Modifier.height(4.dp))
+            val modeOptions = listOf("default" to "通常", "pitwall" to "ピットウォール")
+            // SingleChoiceSegmentedButtonRow/SegmentedButton aren't resolvable against this
+            // project's material3 classpath, so a Row of FilterChips gives the same 2-way
+            // single-select UI using a component that's definitely available.
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                modeOptions.forEach { (value, label) ->
+                    androidx.compose.material3.FilterChip(
+                        selected = settings.analysisMode == value,
+                        onClick = { onAnalysisModeChanged(value) },
+                        label = { Text(label) },
                     )
                 }
-                Switch(
-                    checked = settings.analysisMode == "pitwall",
-                    onCheckedChange = { onAnalysisModeChanged(if (it) "pitwall" else "default") },
-                )
             }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+            Text("文字起こしの言語")
+            Spacer(Modifier.height(4.dp))
+            val sttLanguageOptions = listOf("ja-JP" to "日本語", "en-US" to "English")
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                sttLanguageOptions.forEach { (value, label) ->
+                    androidx.compose.material3.FilterChip(
+                        selected = settings.sttLanguage == value,
+                        onClick = { onSttLanguageChanged(value) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            Text(
+                "デバッグ用。切り替えは次の認識サイクルから反映されます",
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+            )
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("ドライバー要約も生成")
+                Switch(checked = settings.driverSummaryEnabled, onCheckedChange = onDriverSummaryEnabledChanged)
+            }
+            Text(
+                "Webビュワーのドライバー表示用に短い要約を追加生成します（実行のたびに解析が1回増えます）。",
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+            )
         }
     }
 }

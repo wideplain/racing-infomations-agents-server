@@ -11,6 +11,13 @@ const PITWALL_PROMPT_TEMPLATE_PATH = join(
   "prompts",
   "pitwall.ja.md"
 );
+const DRIVER_PROMPT_TEMPLATE_PATH = join(
+  __dirname,
+  "..",
+  "..",
+  "prompts",
+  "driver.ja.md"
+);
 
 export interface PitwallDecision {
   createdAt: string;
@@ -77,6 +84,12 @@ export function loadPitwallPromptTemplate(
   return readFileSync(path, "utf-8");
 }
 
+export function loadDriverPromptTemplate(
+  path: string = DRIVER_PROMPT_TEMPLATE_PATH
+): string {
+  return readFileSync(path, "utf-8");
+}
+
 function formatDecisionTimestamp(createdAt: string): string {
   const d = new Date(createdAt);
   const hh = d.getHours().toString().padStart(2, "0");
@@ -113,6 +126,30 @@ export function buildPitwallPrompt(
   } = {}
 ): string {
   const template = opts.template ?? loadPitwallPromptTemplate();
+  const transcript = buildTranscript(
+    segments,
+    sessionStartedAt,
+    opts.maxSegments,
+    opts.maxChars
+  );
+  return template
+    .replace("{{TRANSCRIPT}}", transcript)
+    .replace("{{DECISIONS}}", buildDecisions(decisions))
+    .replace("{{INSTRUCTION}}", formatInstruction(opts.instruction));
+}
+
+export function buildDriverPrompt(
+  segments: PromptSegment[],
+  sessionStartedAt: string,
+  decisions: PitwallDecision[],
+  opts: {
+    maxSegments?: number;
+    maxChars?: number;
+    template?: string;
+    instruction?: string;
+  } = {}
+): string {
+  const template = opts.template ?? loadDriverPromptTemplate();
   const transcript = buildTranscript(
     segments,
     sessionStartedAt,

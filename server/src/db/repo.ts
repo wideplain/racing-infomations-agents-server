@@ -34,6 +34,18 @@ export interface Analysis {
   updated_at: string;
 }
 
+export interface LocationRow {
+  id: number;
+  session_id: string;
+  lat: number;
+  lng: number;
+  accuracy_m: number | null;
+  speed_mps: number | null;
+  bearing_deg: number | null;
+  recorded_at: string;
+  created_at: string;
+}
+
 export function createSession(
   db: DB,
   input: { title?: string; deviceId?: string }
@@ -139,6 +151,64 @@ export function updateSegment(
     .get(sessionId, clientSeq) as Segment | undefined;
 }
 
+export function insertLocations(
+  db: DB,
+  sessionId: string,
+  points: {
+    lat: number;
+    lng: number;
+    accuracyM?: number;
+    speedMps?: number;
+    bearingDeg?: number;
+    recordedAt: string;
+  }[]
+): { inserted: number } {
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    `INSERT INTO locations (session_id, lat, lng, accuracy_m, speed_mps, bearing_deg, recorded_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const tx = db.transaction((rows: typeof points) => {
+    let inserted = 0;
+    for (const row of rows) {
+      const info = stmt.run(
+        sessionId,
+        row.lat,
+        row.lng,
+        row.accuracyM ?? null,
+        row.speedMps ?? null,
+        row.bearingDeg ?? null,
+        row.recordedAt,
+        now
+      );
+      if (info.changes > 0) inserted++;
+    }
+    return inserted;
+  });
+  const inserted = tx(points);
+  return { inserted };
+}
+
+export function getLatestLocation(db: DB, sessionId: string): LocationRow | undefined {
+  return db
+    .prepare(`SELECT * FROM locations WHERE session_id = ? ORDER BY id DESC LIMIT 1`)
+    .get(sessionId) as LocationRow | undefined;
+}
+
+export function listLocations(
+  db: DB,
+  sessionId: string,
+  opts: { afterId?: number; limit?: number } = {}
+): LocationRow[] {
+  const afterId = opts.afterId ?? 0;
+  const limit = opts.limit ?? 500;
+  return db
+    .prepare(
+      `SELECT * FROM locations WHERE session_id = ? AND id > ? ORDER BY id ASC LIMIT ?`
+    )
+    .all(sessionId, afterId, limit) as LocationRow[];
+}
+
 export function createAnalysis(
   db: DB,
   input: { sessionId: string; provider: string; prompt: string; mode?: string }
@@ -196,7 +266,7 @@ export function updateAnalysis(
   patch: Partial<
     Pick<
       Analysis,
-      "status" | "raw_output" | "result_json" | "error" | "duration_ms"
+      "status" | "prompt" | "raw_output" | "result_json" | "error" | "duration_ms"
     >
   >
 ): void {

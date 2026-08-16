@@ -3,6 +3,7 @@ import {
   buildPrompt,
   buildTranscript,
   buildPitwallPrompt,
+  buildDriverPrompt,
   buildDecisions,
   type PromptSegment,
   type PitwallDecision,
@@ -124,5 +125,43 @@ describe("buildPitwallPrompt", () => {
     expect(prompt).toContain("statusSummary");
     expect(prompt).toContain("[00:00] 発言0");
     expect(prompt).toContain("なし");
+  });
+});
+
+describe("buildDriverPrompt", () => {
+  it("embeds transcript and DECISIONS placeholders", () => {
+    const segs = makeSegments(1);
+    const decisions: PitwallDecision[] = [
+      {
+        createdAt: baseTime.toISOString(),
+        proposal: "提案テスト",
+        statusSummary: "状況テスト",
+      },
+    ];
+    const prompt = buildDriverPrompt(segs, baseTime.toISOString(), decisions, {
+      template: "HEADER\n{{TRANSCRIPT}}\n---\n{{DECISIONS}}\nFOOTER",
+    });
+    expect(prompt).toContain("[00:00] 発言0");
+    expect(prompt).toContain("提案: 提案テスト");
+    expect(prompt).toContain("状況: 状況テスト");
+  });
+
+  it("fills {{DECISIONS}} and {{INSTRUCTION}} with なし when empty", () => {
+    const segs = makeSegments(1);
+    const prompt = buildDriverPrompt(segs, baseTime.toISOString(), [], {
+      template: "{{TRANSCRIPT}}\n{{DECISIONS}}\n{{INSTRUCTION}}",
+    });
+    const lines = prompt.split("\n");
+    expect(lines[1]).toBe("なし");
+    expect(lines[2]).toBe("なし");
+  });
+
+  it("loads the real driver prompt template file when none is given", () => {
+    const segs = makeSegments(1);
+    const prompt = buildDriverPrompt(segs, baseTime.toISOString(), []);
+    expect(prompt).toContain("headline");
+    expect(prompt).toContain("[00:00] 発言0");
+    expect(prompt).toContain("なし");
+    expect(prompt).toContain("{{WEATHER}}");
   });
 });

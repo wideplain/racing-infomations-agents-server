@@ -41,8 +41,22 @@ export function migrate(db: DB): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id)
     );
 
+    CREATE TABLE IF NOT EXISTS locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      accuracy_m REAL,
+      speed_mps REAL,
+      bearing_deg REAL,
+      recorded_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_segments_session ON segments(session_id, client_seq);
     CREATE INDEX IF NOT EXISTS idx_analyses_session ON analyses(session_id);
+    CREATE INDEX IF NOT EXISTS idx_locations_session ON locations(session_id, recorded_at);
   `);
 
   // Older DBs created before the "excluded" (archive) column existed: add it if missing.

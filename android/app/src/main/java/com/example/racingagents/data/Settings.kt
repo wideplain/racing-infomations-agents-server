@@ -22,6 +22,11 @@ data class AppSettings(
     val autoAnalysisCharThreshold: Int = 300,
     /** "default" or "pitwall" — sent as the analyze() request body's mode field. */
     val analysisMode: String = "default",
+    /** When true, each analysis run also fires an independent "driver" mode request so the
+     * web viewer's driver display has a short summary alongside the normal detailed analysis. */
+    val driverSummaryEnabled: Boolean = true,
+    /** "ja-JP" or "en-US" — the language passed to SpeechRecognizer for transcription. */
+    val sttLanguage: String = "ja-JP",
 )
 
 /** Server URL / API key / beep-mute / auto-analysis config, persisted via DataStore preferences. */
@@ -34,6 +39,8 @@ class SettingsRepository(private val context: Context) {
         val AUTO_ANALYSIS_INTERVAL_SEC = intPreferencesKey("auto_analysis_interval_sec")
         val AUTO_ANALYSIS_CHAR_THRESHOLD = intPreferencesKey("auto_analysis_char_threshold")
         val ANALYSIS_MODE = stringPreferencesKey("analysis_mode")
+        val DRIVER_SUMMARY_ENABLED = booleanPreferencesKey("driver_summary_enabled")
+        val STT_LANGUAGE = stringPreferencesKey("stt_language")
     }
 
     val settingsFlow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -49,7 +56,17 @@ class SettingsRepository(private val context: Context) {
             autoAnalysisEnabled = prefs[Keys.AUTO_ANALYSIS_ENABLED] ?: false,
             autoAnalysisIntervalSec = prefs[Keys.AUTO_ANALYSIS_INTERVAL_SEC] ?: 60,
             autoAnalysisCharThreshold = prefs[Keys.AUTO_ANALYSIS_CHAR_THRESHOLD] ?: 300,
-            analysisMode = prefs[Keys.ANALYSIS_MODE] ?: "default",
+            // "driver" used to be selectable here, which replaced the detailed analysis instead of
+            // supplementing it. It's now produced separately via driverSummaryEnabled, so a stored
+            // "driver" is migrated to pitwall — otherwise the main analysis would stay driver-shaped
+            // and the detailed history would never accumulate again on that device.
+            analysisMode = (prefs[Keys.ANALYSIS_MODE] ?: "default").let {
+                if (it == "default" || it == "pitwall") it else "pitwall"
+            },
+            driverSummaryEnabled = prefs[Keys.DRIVER_SUMMARY_ENABLED] ?: true,
+            sttLanguage = (prefs[Keys.STT_LANGUAGE] ?: "ja-JP").let {
+                if (it == "ja-JP" || it == "en-US") it else "ja-JP"
+            },
         )
     }
 
@@ -79,5 +96,13 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAnalysisMode(mode: String) {
         context.settingsDataStore.edit { it[Keys.ANALYSIS_MODE] = mode }
+    }
+
+    suspend fun setDriverSummaryEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.DRIVER_SUMMARY_ENABLED] = enabled }
+    }
+
+    suspend fun setSttLanguage(lang: String) {
+        context.settingsDataStore.edit { it[Keys.STT_LANGUAGE] = lang }
     }
 }

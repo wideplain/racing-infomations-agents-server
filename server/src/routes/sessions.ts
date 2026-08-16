@@ -10,7 +10,12 @@ import {
   listSegments,
   updateSegment,
   listAnalysesForSession,
+  insertLocations,
+  listLocations,
 } from "../db/repo.js";
+import type { RouteResolver } from "../route/routeResolver.js";
+
+const ROUTE_LOCATIONS_LIMIT = 5000;
 
 const createSessionSchema = z.object({
   title: z.string().optional(),
@@ -27,12 +32,29 @@ const segmentsBatchSchema = z.object({
   segments: z.array(segmentSchema).min(1),
 });
 
+const locationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  accuracyM: z.number().min(0).optional(),
+  speedMps: z.number().optional(),
+  bearingDeg: z.number().min(0).max(360).optional(),
+  recordedAt: z.string(),
+});
+
+const locationsBatchSchema = z.object({
+  locations: z.array(locationSchema).min(1).max(50),
+});
+
 const segmentPatchSchema = z.object({
   text: z.string().min(1).optional(),
   excluded: z.boolean().optional(),
 });
 
-export function registerSessionRoutes(app: FastifyInstance, db: DB): void {
+export function registerSessionRoutes(
+  app: FastifyInstance,
+  db: DB,
+  routeResolver: RouteResolver
+): void {
   app.post("/sessions", async (request, reply) => {
     const parsed = createSessionSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
@@ -82,6 +104,56 @@ export function registerSessionRoutes(app: FastifyInstance, db: DB): void {
         parsed.data.segments
       );
       return reply.code(201).send({ inserted });
+    }
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/locations",
+    async (request, reply) => {
+      const session = getSession(db, request.params.id);
+      if (!session) return reply.code(404).send({ error: "not_found" });
+
+      const parsed = locationsBatchSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_body" });
+      }
+      const { inserted } = insertLocations(
+        db,
+        request.params.id,
+        parsed.data.locations
+      );
+      return reply.code(201).send({ inserted });
+    }
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { after?: string; limit?: string } }>(
+    "/sessions/:id/locations",
+    async (request, reply) => {
+      const session = getSession(db, request.params.id);
+      if (!session) return reply.code(404).send({ error: "not_found" });
+
+      const afterId = Number(request.query.after);
+      const limit = Number(request.query.limit);
+      const locations = listLocations(db, request.params.id, {
+        afterId: Number.isFinite(afterId) && afterId > 0 ? afterId : 0,
+        limit: Number.isFinite(limit) && limit > 0 ? limit : 500,
+      });
+      return reply.send({ locations });
+    }
+  );
+
+  // AI不使用: セッションのGPS軌跡を国土地理院リバースジオコーダで地名化した通過地点リスト。
+  // 外部API保護のため呼び出しはビュワーの手動更新のみ(自動ポーリング対象外)。
+  app.get<{ Params: { id: string } }>(
+    "/sessions/:id/route",
+    async (request, reply) => {
+      const session = getSession(db, request.params.id);
+      if (!session) return reply.code(404).send({ error: "not_found" });
+      const locations = listLocations(db, request.params.id, {
+        limit: ROUTE_LOCATIONS_LIMIT,
+      });
+      const route = await routeResolver.resolveRoute(locations);
+      return reply.send({ route, pointCount: locations.length });
     }
   );
 

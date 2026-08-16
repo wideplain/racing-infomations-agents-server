@@ -271,6 +271,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
     fun onAutoAnalysisCharThresholdChanged(chars: Int) = viewModelScope.launch { settingsRepository.setAutoAnalysisCharThreshold(chars) }
     fun onAnalysisModeChanged(mode: String) = viewModelScope.launch { settingsRepository.setAnalysisMode(mode) }
 
+    fun onSttLanguageChanged(lang: String) = viewModelScope.launch { settingsRepository.setSttLanguage(lang) }
+    fun onDriverSummaryEnabledChanged(enabled: Boolean) = viewModelScope.launch { settingsRepository.setDriverSummaryEnabled(enabled) }
+
     fun openSettingsSheet() = _uiState.update { it.copy(showSettingsSheet = true) }
     fun closeSettingsSheet() = _uiState.update { it.copy(showSettingsSheet = false) }
 
@@ -282,7 +285,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
         viewModelScope.launch {
             runCatching { currentApi.createSession(CreateSessionRequest(title = "session", deviceId = deviceId)) }
-                .onSuccess { response -> _uiState.update { it.copy(sessionId = response.id, lastErrorMessage = null) } }
+                .onSuccess { response ->
+                    _uiState.update { it.copy(sessionId = response.id, lastErrorMessage = null) }
+                }
                 .onFailure { e ->
                     _uiState.update { it.copy(lastErrorMessage = "セッション作成失敗: ${e.message ?: e::class.simpleName}") }
                 }
@@ -308,15 +313,28 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 lastErrorMessage = null,
             )
         }
-        // Rebuild so the SegmentQueue's clientSeq counter restarts at 0 alongside the now-empty
-        // transcript, instead of continuing from the previous session's highest clientSeq.
-        rebuildApiClientIfNeeded(_uiState.value.settings)
-        startSession()
+        viewModelScope.launch {
+            // Clear the upload backlog and both persisted snapshots BEFORE rebuilding: the rebuild
+            // constructs a fresh SegmentQueue that immediately restores from the queue snapshot, so
+            // leftovers would otherwise drain into the new session, and the transcript file would
+            // repopulate the screen on the next app start.
+            segmentQueue?.clearAll()
+            transcriptStore.save(emptyList())
+
+            // Rebuild so the SegmentQueue's clientSeq counter restarts at 0 alongside the now-empty
+            // transcript, instead of continuing from the previous session's highest clientSeq.
+            rebuildApiClientIfNeeded(_uiState.value.settings)
+            startSession()
+        }
     }
 
     fun startListening() {
         if (_uiState.value.sessionId == null) startSession()
-        SttForegroundService.start(context, muteRestartBeep = _uiState.value.settings.muteRestartBeep)
+        SttForegroundService.start(
+            context,
+            muteRestartBeep = _uiState.value.settings.muteRestartBeep,
+            sttLanguage = _uiState.value.settings.sttLanguage,
+        )
     }
 
     fun stopListening() {
@@ -327,8 +345,24 @@ class MainViewModel(private val context: Context) : ViewModel() {
     /** Analyses run one at a time on the server (its SerialQueue is concurrency-1), but each call
      * appends a new timestamped entry to the timeline rather than overwriting the last result.
      * Manual and auto runs poll independently (keyed by localId) so triggering one never cancels
-     * the other's in-flight polling — they render in separate columns and shouldn't interfere. */
+     * the other's in-flight polling — they render in separate columns and shouldn't interfere.
+     *
+     * Fires the normal analysis (settings.analysisMode) exactly as before, then — if
+     * driverSummaryEnabled — also fires an independent "driver" mode request for the same
+     * session/trigger, so the web viewer's driver display can accumulate short summaries without
+     * displacing the detailed pitwall/default analyses. */
     fun runAnalysis(trigger: AnalysisTrigger = AnalysisTrigger.MANUAL, instruction: String? = null) {
+        val settings = _uiState.value.settings
+        launchAnalysis(settings.analysisMode, trigger, instruction)
+        if (settings.driverSummaryEnabled) {
+            launchAnalysis("driver", trigger, instruction)
+        }
+    }
+
+    /** Fires a single analyze() request in [mode] and polls it to completion, appending its own
+     * timestamped entry to analysisHistory. See [runAnalysis] for why this can be called more
+     * than once per user-facing "AI解析" trigger. */
+    private fun launchAnalysis(mode: String, trigger: AnalysisTrigger, instruction: String?) {
         val currentApi = api ?: return
         val sessionId = _uiState.value.sessionId ?: return
 
@@ -350,10 +384,15 @@ class MainViewModel(private val context: Context) : ViewModel() {
             }
         }
 
-        val analysisMode = _uiState.value.settings.analysisMode
         analyzePollingJobs[localId] = viewModelScope.launch {
             val analyzeResult = runCatching {
-                currentApi.analyze(sessionId, AnalyzeRequest(mode = analysisMode, instruction = instruction?.trim()?.ifBlank { null }))
+                currentApi.analyze(
+                    sessionId,
+                    AnalyzeRequest(
+                        mode = mode,
+                        instruction = instruction?.trim()?.ifBlank { null },
+                    ),
+                )
             }
             val analysisId = analyzeResult.getOrNull()?.analysisId
             if (analysisId == null) {

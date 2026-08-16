@@ -7,6 +7,8 @@ export interface Config {
   codexBin: string;
   analyzeTimeoutMs: number;
   codexHome: string | undefined;
+  weatherEnabled: boolean;
+  weatherTimeoutMs: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -19,5 +21,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     codexBin: env.CODEX_BIN ?? "codex",
     analyzeTimeoutMs: Number(env.ANALYZE_TIMEOUT_MS ?? 120000),
     codexHome: env.CODEX_HOME || undefined,
+    weatherEnabled: env.WEATHER_ENABLED === "false" || env.WEATHER_ENABLED === "0" ? false : true,
+    weatherTimeoutMs: Number(env.WEATHER_TIMEOUT_MS ?? 4000),
   };
 }

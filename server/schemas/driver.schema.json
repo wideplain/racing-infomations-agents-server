@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "headline": { "type": "string" },
+    "action": { "type": "string" },
+    "watch": { "type": ["string", "null"] },
+    "urgency": { "type": "string", "enum": ["low", "medium", "high"] }
+  },
+  "required": ["headline", "action", "watch", "urgency"],
+  "additionalProperties": false
+}

@@ -162,3 +162,68 @@ export function parsePitwallAnalysis(rawText: string): ParsedPitwallAnalysis {
     parseFallback: true,
   };
 }
+
+const driverSchema = z.object({
+  headline: z.string().nullable().default(null),
+  action: z.string().nullable().default(null),
+  watch: z.string().nullable().default(null),
+  urgency: z.enum(["low", "medium", "high"]).nullable().default(null),
+});
+
+export interface ParsedDriverAnalysis {
+  headline: string;
+  action: string;
+  watch: string | null;
+  urgency: "low" | "medium" | "high" | null;
+  parseFallback: boolean;
+}
+
+// The Android HUD renders these fields in huge fonts on a small phone
+// screen; the model may overshoot the 24-character instruction, so we
+// hard-truncate here regardless of what came back.
+const DRIVER_FIELD_MAX_CHARS = 24;
+
+function truncateDriverField(value: string): string {
+  return value.slice(0, DRIVER_FIELD_MAX_CHARS);
+}
+
+function fillDriverFromZod(candidate: unknown): ParsedDriverAnalysis | undefined {
+  const parsed = driverSchema.safeParse(candidate);
+  if (!parsed.success) return undefined;
+  const d = parsed.data;
+  return {
+    headline: truncateDriverField(d.headline ?? ""),
+    action: truncateDriverField(d.action ?? ""),
+    watch: d.watch != null ? truncateDriverField(d.watch) : null,
+    urgency: d.urgency ?? null,
+    parseFallback: false,
+  };
+}
+
+/**
+ * Same fallback chain as parseAnalysis/parsePitwallAnalysis: JSON.parse ->
+ * code-fence strip -> outermost {..} extraction -> zod validation with
+ * null-fill -> raw-text fallback (parseFallback: true). All string fields
+ * are hard-truncated to 24 characters after parsing.
+ */
+export function parseDriverAnalysis(rawText: string): ParsedDriverAnalysis {
+  const candidates = [
+    tryDirectJson(rawText),
+    tryFenceStrip(rawText),
+    tryOutermostBraces(rawText),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate === undefined) continue;
+    const filled = fillDriverFromZod(candidate);
+    if (filled) return filled;
+  }
+
+  return {
+    headline: truncateDriverField(rawText.trim()),
+    action: "",
+    watch: null,
+    urgency: null,
+    parseFallback: true,
+  };
+}

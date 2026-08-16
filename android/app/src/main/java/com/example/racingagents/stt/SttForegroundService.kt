@@ -61,6 +61,7 @@ class SttForegroundService : Service() {
 
     private var controller: SpeechController? = null
     private var muteRestartBeep: Boolean = false
+    private var sttLanguage: String = "ja-JP"
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +74,7 @@ class SttForegroundService : Service() {
             return START_NOT_STICKY
         }
         muteRestartBeep = intent?.getBooleanExtra(EXTRA_MUTE_BEEP, false) ?: false
+        sttLanguage = intent?.getStringExtra(EXTRA_STT_LANGUAGE) ?: "ja-JP"
         startForeground(NOTIFICATION_ID, buildNotification(ListeningState.LISTENING))
         startRecognition()
         return START_STICKY
@@ -94,6 +96,7 @@ class SttForegroundService : Service() {
                 updateNotification(state)
             },
             muteRestartBeepProvider = { muteRestartBeep },
+            languageProvider = { sttLanguage },
         ).also { it.start() }
     }
 
@@ -152,10 +155,12 @@ class SttForegroundService : Service() {
 
     companion object {
         const val EXTRA_MUTE_BEEP = "mute_beep"
+        const val EXTRA_STT_LANGUAGE = "stt_language"
 
-        fun start(context: Context, muteRestartBeep: Boolean) {
+        fun start(context: Context, muteRestartBeep: Boolean, sttLanguage: String) {
             val intent = Intent(context, SttForegroundService::class.java)
                 .putExtra(EXTRA_MUTE_BEEP, muteRestartBeep)
+                .putExtra(EXTRA_STT_LANGUAGE, sttLanguage)
             context.startForegroundService(intent)
         }
 

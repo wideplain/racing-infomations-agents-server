@@ -1,7 +1,33 @@
 /* Viewer-page-only: fill the full viewport height instead of growing with content, so on a PC
-   both columns use the whole screen, and on mobile each column gets a fixed share of the screen
+   both columns use the whole screen, and on mobile each pane gets a fixed share of the screen
    (independently scrollable) so the latest transcript line / analysis entry is always in view
-   without having to scroll through the whole page first. */
+   without having to scroll through the whole page first.
+
+   File layout: variables, base/hidden guard, header, .screen base, live screen, route screen,
+   shared pane/analysis-entry styles, driver HUD. Each screen (#viewerSection / #routeSection /
+   #driverHud) is switched by [hidden] and must stay visually and structurally independent of
+   the others — screen-specific rules live only in that screen's section below. */
+
+/* ── Variables ───────────────────────────────────────────────────────────── */
+:root {
+  --surface: #ffffff;
+  --text: #1c1c1e;
+  --muted: #8e8e93;
+  --warn: #d70015;
+  --pane-radius: 10px;
+  --pane-padding: 10px 14px;
+  --accent-pitwall: #ff9500;
+  --accent-driver: #34c759;
+  --tl-urgency-medium: #c77700;
+  --tl-urgency-high: #d70015;
+}
+
+/* ── Base / hidden guard ─────────────────────────────────────────────────── */
+/* Screens (#viewerSection / #routeSection) set `display: grid|flex`, which overrides the
+   `hidden` attribute's UA `display: none` — without this guard both screens render at once and
+   overlap each other. Every screen must stay fully independent, so hidden means hidden. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -11,97 +37,352 @@ body {
   flex-direction: column;
   padding-bottom: 0;
 }
-header { flex: 0 0 auto; }
 main {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-#viewerSection {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
 
-.viewer-columns {
-  display: flex;
-  gap: 16px;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.viewer-col {
-  flex: 1 1 0;
+/* ── Header ──────────────────────────────────────────────────────────────── */
+/* style.css's default header allows wrapping, which on a phone splits the row into multiple
+   lines (and even wraps "API Key" onto two lines by itself) and eats vertical space the content
+   below needs. Keep everything on one row, letting the title truncate first. */
+header {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
 }
-.viewer-col details {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+#pageTitle {
   flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.viewer-col details:not([open]) {
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  background: #e5e5ea;
+  border-radius: 8px;
+  padding: 3px;
   flex: 0 0 auto;
 }
-/* Desktop (row layout): a collapsed column shouldn't be stretched to the container's full
-   height by align-items:stretch — let it shrink to just the summary line, freeing that space
-   isn't needed since the sibling sits beside it, but this avoids an awkwardly tall empty box. */
-.viewer-col.collapsed {
-  align-self: flex-start;
+.view-tab {
+  background: transparent;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  /* Tab labels are short by design; wrapping them turns the header into two rows and eats the
+     content area on a phone. */
+  white-space: nowrap;
 }
-.viewer-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  scroll-behavior: smooth;
+.view-tab.active {
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+#hudToggle {
+  background: var(--accent-driver);
+  font-size: 0.9rem;
+  padding: 6px 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.apikey-details {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.apikey-details summary {
+  white-space: nowrap;
 }
 
-/* Mobile: stack the two columns instead of side-by-side, each taking half the screen height
-   (independently scrollable) so a single exchange is visible without excess scrolling. */
 @media (max-width: 700px) {
-  .viewer-columns {
-    flex-direction: column;
+  header {
+    gap: 6px;
+    padding: 8px 0;
   }
-  .viewer-col {
-    flex: 1 1 0;
-    min-height: 0;
+  #pageTitle {
+    font-size: 1rem;
   }
-  /* Stacked layout: main axis is vertical, so shrinking this column's flex-grow to 0 actually
-     frees the height for the still-open sibling to expand into (unlike the row/desktop case). */
-  .viewer-col.collapsed {
-    flex: 0 0 auto;
-    align-self: stretch;
+  .header-actions {
+    gap: 6px;
+  }
+  .view-tab {
+    padding: 5px 8px;
+    font-size: 0.8rem;
+  }
+  #hudToggle {
+    padding: 5px 8px;
+    font-size: 0.8rem;
+  }
+  .apikey-details summary {
+    font-size: 0.8rem;
   }
 }
-.viewer-col summary {
+
+/* ── Status bar ──────────────────────────────────────────────────────────── */
+/* One row summarizing connection/session state, shown above both screens. flex: 0 0 auto keeps
+   it out of the height budget the screens below rely on; flex-wrap lets it degrade to a second
+   line on a very narrow phone rather than clipping. */
+.status-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid #e5e5ea;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.status-item {
+  white-space: nowrap;
+}
+.status-item.status-error {
+  color: var(--warn);
+}
+
+/* ── Screen base ─────────────────────────────────────────────────────────── */
+/* Common contract for every top-level screen: take the remaining viewport height below the
+   header and never grow past it. Layout specific to one screen belongs in that screen's own
+   section, not here. */
+.screen {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Live screen (#viewerSection) ───────────────────────────────────────────
+   Desktop: transcript + analysis side by side, filling the full remaining height. */
+#viewerSection {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "segments analyses";
+}
+#segmentsDetails { grid-area: segments; }
+#analysesDetails { grid-area: analyses; }
+
+/* A closed <details> already collapses to just its <summary> natively; toggling these classes
+   (from viewer.js) on the grid container shrinks that pane's track to `auto` so the freed space
+   goes to the still-open sibling(s), instead of each pane owning a fixed fraction regardless of
+   state. */
+@media (min-width: 701px) {
+  #viewerSection.collapsed-segments { grid-template-columns: auto minmax(0, 1fr); }
+  #viewerSection.collapsed-analyses { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+/* Mobile: stack the panes, each an equal fr share of the viewport (independently
+   scrollable) so a single exchange is visible without excess scrolling. */
+/* Mobile: stop pinning everything to the viewport. A phone screen split into two fixed panes
+   leaves each one too short to read, and because the page itself couldn't scroll either, the
+   whole view felt frozen. Here the panes take their natural height and the PAGE scrolls, which
+   is what a phone user expects. The desktop two-column fixed-height layout above is unchanged. */
+@media (max-width: 700px) {
+  html, body { height: auto; }
+  body { display: block; }
+  main { display: block; min-height: 0; }
+  .screen { min-height: 0; }
+  #viewerSection {
+    display: block;
+  }
+  #segmentsDetails, #analysesDetails {
+    overflow: visible;
+    margin-bottom: 16px;
+  }
+  /* Cap each pane so one long section can't push the other entirely off-screen, while still
+     letting the page scroll past them. */
+  #segmentsDetails .viewer-scroll,
+  #analysesDetails .viewer-scroll {
+    max-height: 60vh;
+  }
+}
+
+/* ── Route / time screen (#routeSection) ────────────────────────────────────
+   Column layout with an explicit budget per part so all of it (map, playback controls, history,
+   passages) is reachable on a phone without the map dominating: the map is flexible but capped,
+   the controls are a fixed-height row, and the two <details> panes scroll internally within
+   their own capped height. */
+#routeSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#routeSection #map {
+  flex: 1 1 auto;
+  min-height: 240px;
+  width: 100%;
+}
+.route-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.route-playback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.route-time-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+#routeSlider {
+  width: 100%;
+}
+#routeHistoryDetails {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 26vh;
+}
+.route-history table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.route-history th, .route-history td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid #e5e5ea;
+}
+.route-history tr.route-history-row {
+  cursor: pointer;
+}
+.route-history tr.route-history-row:hover {
+  background: #f2f2f7;
+}
+.route-history tr.route-history-row.active {
+  background: #d0e8ff;
+}
+
+/* The ルート更新 button drives the 通過地点 pane directly below it (it (re)fetches the place
+   names shown there), not the 区間時刻履歴 pane above — group them into one visual block so
+   that relationship reads correctly instead of the button looking like it belongs to the
+   history pane above it. */
+.route-passages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.route-names-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.route-names-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+#routeNamesDetails {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 26vh;
+}
+.route-names-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #e5e5ea;
+  font-size: 0.9rem;
+}
+.route-names-time {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.route-names-name {
+  font-weight: 600;
+}
+.route-names-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 4px 8px;
+}
+#map {
+  border-radius: var(--pane-radius);
+  background: #e5e5ea;
+}
+/* Playback position marker, replacing Leaflet's L.circleMarker. */
+.route-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #0a84ff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Shared pane / analysis-entry styles ────────────────────────────────────
+   Used by both the live screen (transcript/analysis panes) and the route screen (history/
+   passages panes). */
+.viewer-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Without this the pane paints past its grid track and overlaps the next pane's heading —
+     min-height:0 lets it *shrink*, but only overflow actually clips what spills out. */
+  overflow: hidden;
+}
+.viewer-pane summary {
   font-size: 1.1rem;
   font-weight: bold;
   cursor: pointer;
   padding: 4px 0;
   list-style: none;
   user-select: none;
+  flex: 0 0 auto;
 }
-.viewer-col summary::-webkit-details-marker { display: none; }
-.viewer-col summary::before {
+.viewer-pane summary::-webkit-details-marker { display: none; }
+.viewer-pane summary::before {
   content: "▾ ";
   display: inline-block;
   transition: transform 0.15s;
 }
-.viewer-col details:not([open]) summary::before {
+.viewer-pane:not([open]) summary::before {
   transform: rotate(-90deg);
 }
+
+/* min-height: 0 is required here because these are flex children inside a grid item — without
+   it a flex child's default min-height:auto (based on content) would prevent it from shrinking
+   below its content size, defeating overflow-y:auto and letting content burst out of the pane. */
+.viewer-scroll {
+  /* basis 0, not auto: with `auto` the basis is the content's own height, so this box sizes
+     itself to its content and never reports an overflow — the parent's overflow:hidden then
+     just clips the excess and nothing scrolls. basis 0 makes it take the parent's leftover
+     height instead, which is what turns overflow-y:auto into a real scroller. */
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* -webkit-overflow-scrolling keeps momentum scrolling on iOS. `scroll-behavior: smooth` is
+     deliberately NOT set: the follow-the-tail logic assigns scrollTop directly, and smooth
+     animation of that assignment fights the user's own drag. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 .analysis-entry {
-  background: white;
-  border-radius: 10px;
-  padding: 10px 14px;
+  background: var(--surface);
+  border-radius: var(--pane-radius);
+  padding: var(--pane-padding);
   margin-bottom: 10px;
 }
 .analysis-entry .entry-time {
-  color: #8e8e93;
+  color: var(--muted);
   font-size: 0.8rem;
   font-weight: bold;
 }
@@ -109,12 +390,182 @@ main {
   display: inline-block;
   font-size: 0.7rem;
   color: white;
-  background: #8e8e93;
+  background: var(--muted);
   border-radius: 6px;
   padding: 1px 6px;
   margin-left: 6px;
 }
-.analysis-entry .entry-mode.pitwall { background: #ff9500; }
+.analysis-entry .entry-mode.pitwall { background: var(--accent-pitwall); }
 .analysis-entry h4 { margin: 8px 0 2px; font-size: 0.9rem; }
-.analysis-entry .warn { color: #d70015; }
-.analysis-entry .status-queued, .analysis-entry .status-running { color: #8e8e93; }
+.analysis-entry .warn { color: var(--warn); }
+.analysis-entry .status-queued, .analysis-entry .status-running { color: var(--muted); }
+
+/* Driver mode: terse by design, so it's rendered noticeably larger than the other modes. This
+   is the in-timeline rendering on the normal light page — it intentionally does NOT use the
+   dark driver-HUD palette below, just the same shared variables as everything else here. */
+.analysis-entry .entry-mode.driver { background: var(--accent-driver); }
+.analysis-entry .driver-headline {
+  font-size: 1.4rem;
+  font-weight: bold;
+  margin: 6px 0;
+  line-height: 1.3;
+}
+.analysis-entry .driver-action {
+  font-size: 1.1rem;
+  margin: 4px 0;
+}
+.analysis-entry .driver-watch {
+  font-size: 1rem;
+  color: var(--warn);
+  margin: 4px 0;
+}
+.analysis-entry .driver-urgency {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+.analysis-entry .driver-urgency.urgency-medium { color: var(--tl-urgency-medium); }
+.analysis-entry .driver-urgency.urgency-high { color: var(--tl-urgency-high); font-weight: bold; }
+
+/* ── Driver HUD ──────────────────────────────────────────────────────────────
+   Full-viewport, no-scroll display for the person driving/working, who can only glance for a
+   second. Dark background + high-luminance text maximizes contrast for outdoor/in-motion
+   viewing (deliberately not matched to the rest of the page). Urgency drives a bright accent
+   edge bar + label color rather than a pale background wash, so it reads peripherally.
+   grid-template-areas gives every element a permanent slot (including `watch`'s row, which
+   stays reserved even when empty) so nothing shifts position between updates. Sized to fit an
+   iPhone SE (375x667) in one screenful: font sizes are vw-based with clamps, and viewer.js
+   shrinks --hud-scale further if the content still overflows, so text is never clipped/scrolled. */
+body.hud-open { overflow: hidden; }
+
+.driver-hud {
+  position: fixed;
+  inset: 0;
+  /* Above MapLibre's controls (they default to z-index ~2-3), otherwise the map's +/- buttons
+     punch through the overlay. */
+  z-index: 2000;
+  padding: 16px 18px;
+  background: #0b0b0c;
+  color: #f5f5f7;
+  /* Left-aligned, not centered: with centered text every wrapped line starts at a different
+     x-position, so a glance has to hunt for the start of each line. A fixed left edge lets the
+     eye drop straight down the same rail. */
+  text-align: left;
+  overflow: hidden;
+  --hud-scale: 1;
+  --hud-accent: #00e5ff;
+  --hud-accent-bar: 6px;
+  border-top: var(--hud-accent-bar) solid var(--hud-accent);
+  transition: border-top-width 0.15s, border-color 0.15s;
+}
+.driver-hud[hidden] { display: none; }
+.driver-hud.urgency-medium { --hud-accent: #ffb300; }
+.driver-hud.urgency-high { --hud-accent: #ff1744; --hud-accent-bar: 14px; }
+
+.driver-hud .hud-body {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-areas:
+    "urgency"
+    "headline"
+    "action"
+    "watch"
+    "meta";
+  /* Status row pinned to the top, content block anchored just under it, and the slack pushed
+     to the bottom — so urgency/headline/action/watch always sit at the same heights regardless
+     of text length. A glance lands in the same place every time instead of hunting a
+     vertically-centered block that moves as the text grows. The bottom slack is deliberate
+     breathing room, not wasted space: it keeps the eye from having to scan low on the screen. */
+  grid-template-rows: auto auto auto auto 1fr;
+  justify-items: stretch;
+  row-gap: 2.2vh;
+  overflow: hidden;
+}
+/* A filled badge rather than colored text: at a glance the eye registers the block of color
+   before it can read the word, which is the point of showing urgency at all. Sits on the same
+   top row as the freshness stamp so both status facts are read in one fixation. */
+.driver-hud .hud-urgency {
+  grid-area: urgency;
+  margin: 0;
+  justify-self: start;
+  padding: 4px 12px;
+  /* Leaves room for the age stamp that viewer.js positions at the row's right edge. */
+  margin-right: 8.5rem;
+  border-radius: 999px;
+  background: var(--hud-accent);
+  color: #0b0b0c;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-size: calc(clamp(0.85rem, 3.6vw, 1.15rem) * var(--hud-scale));
+}
+.driver-hud .hud-headline {
+  grid-area: headline;
+  margin: 0;
+  font-weight: 800;
+  /* Tight leading so a 3-line headline still reads as one block rather than three sentences. */
+  line-height: 1.15;
+  font-size: calc(clamp(2.3rem, 12.5vw, 4.2rem) * var(--hud-scale));
+}
+/* At high urgency the headline itself turns accent-colored so it's identifiable without
+   reading, alongside the thicker top bar. */
+.driver-hud.urgency-high .hud-headline { color: var(--hud-accent); }
+/* action and watch get a left rule so the eye can tell them apart from the headline without
+   reading — one is "what to do", the other is "what to watch for". */
+.driver-hud .hud-action {
+  grid-area: action;
+  margin: 0;
+  padding-left: 12px;
+  border-left: 4px solid #7de3ff;
+  font-weight: 600;
+  line-height: 1.3;
+  font-size: calc(clamp(1.35rem, 6.8vw, 2.2rem) * var(--hud-scale));
+}
+.driver-hud .hud-watch {
+  grid-area: watch;
+  margin: 0;
+  padding-left: 12px;
+  border-left: 4px solid #ff1744;
+  line-height: 1.3;
+  font-size: calc(clamp(1.1rem, 5.4vw, 1.8rem) * var(--hud-scale));
+  color: #ff6b81;
+}
+/* viewer.js sets [hidden] when there's no caution. Keep the row's height reserved so the
+   headline and action don't jump between analyses that do and don't have one. */
+.driver-hud .hud-watch[hidden] {
+  display: block;
+  visibility: hidden;
+}
+/* Freshness matters more than the wall-clock time: acting on a stale summary is the real hazard.
+   It's pinned to the top-right, level with the urgency badge, rather than at the bottom edge —
+   at the bottom it sat outside the glance path and an old summary could pass for a current one. */
+.driver-hud .hud-meta {
+  grid-area: urgency;
+  justify-self: end;
+  align-self: center;
+  /* Clear of the ✕ button in the same corner. */
+  margin: 0 2.6rem 0 0;
+  font-size: calc(clamp(0.85rem, 3.6vw, 1.1rem) * var(--hud-scale));
+  font-weight: 700;
+  opacity: 0.55;
+  text-align: right;
+}
+.driver-hud .hud-meta.stale {
+  color: #0b0b0c;
+  background: #ffb300;
+  padding: 4px 10px;
+  border-radius: 999px;
+  opacity: 1;
+}
+.driver-hud .hud-exit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.45;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 8px 12px;
+  z-index: 1;
+}

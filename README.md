@@ -62,9 +62,29 @@ Pixel (オンデバイスSTT) → Tailscale → Mac (Fastify + SQLite) → codex
 | MagicDNS 名 | `http://my-mac.tailXXXX.ts.net:8787` | 読みやすい。DNS 設定が反映されている必要あり |
 | **tailnet IP** | `http://100.x.y.z:8787` | **名前解決を経由しないので確実**。MagicDNS が効かない端末（iOS で稀に発生）はこちら |
 
-`ERR_NAME_NOT_RESOLVED` が出る場合は MagicDNS ではなく IP を使ってください。iOS で解決しないときは Tailscale アプリの VPN を OFF→ON する、または iCloud プライベートリレーを切ると直ることがあります。
+`ERR_NAME_NOT_RESOLVED` が出る場合は、まず Tailscale アプリの VPN を OFF→ON して MagicDNS の名前解決をやり直してください（IP フォールバックは HTTPS では使えないため、下記の HTTPS 経路を使う場合は名前解決を直すのが正攻法です）。
 
-> ⚠️ HTTP（`https` ではない）なので、ブラウザのアドレスバーには **必ず `http://` を明示**してください。省略すると HTTPS で接続を試みて失敗します。
+> ⚠️ 素の HTTP（`https` ではない）でアクセスする場合、ブラウザのアドレスバーには **必ず `http://` を明示**してください。省略すると HTTPS で接続を試みて失敗します。
+
+### HTTPS でのアクセス（推奨・ブラウザのビュワーはこちら）
+
+tailnet には最初から HTTPS 証明書が発行されています（`tailscale status --json` の `CertDomains` に `<マシン名>.<tailnet名>.ts.net` が出ていれば利用可能）。**ブラウザの Geolocation API は非セキュアな HTTP オリジンでは動作しない**ため、ビュワーで位置情報系の機能を使うなら HTTPS 必須です。`tailscale serve` で 8787 番のサーバーを HTTPS 化して公開します（443 番が他プロジェクトで使用中の場合は空いている番号、例えば 8443 を使う）:
+
+```bash
+tailscale serve --bg --https=8443 http://localhost:8787
+```
+
+公開されたURL: `https://<マシン名>.<tailnet名>.ts.net:8443/viewer.html?session=latest`
+
+確認・停止:
+```bash
+tailscale serve status          # 公開状況を確認
+tailscale serve --https=8443 off  # 停止
+```
+
+- HTTPS は tailnet 内のみに公開され、インターネットには一切露出しません。
+- **HTTPS は MagicDNS 名にのみ証明書が紐づくため、`https://100.x.y.z:8787` のような tailnet IP フォールバックは使えません。** IP でしかアクセスできない端末は、上記の通り名前解決を直すか、素の HTTP（8787番、下記）を使ってください。
+- Android アプリはブラウザの Geolocation 制約を受けないため、引き続き素の HTTP（`http://<tailnet-ip>:8787`）で問題ありません。
 
 ---
 
@@ -155,7 +175,8 @@ sdk.dir=/Users/<あなた>/Library/Android/sdk
 
 - アプリの **「👁 共有」** ボタンでビュワー URL がクリップボードにコピーされます
 - 操作用 UI（`http://<サーバー>:8787/`）のセッション一覧からも「👁 ビュワー」で開けます
-- URL 形式: `http://<サーバー>:8787/viewer.html?session=<セッションID>`
+- URL 形式（HTTP）: `http://<サーバー>:8787/viewer.html?session=<セッションID>`
+- URL 形式（HTTPS・推奨、位置情報を使う場合は必須）: `https://<マシン名>.<tailnet名>.ts.net:8443/viewer.html?session=<セッションID>`（`tailscale serve` のセットアップは上記「1. Tailscale のセットアップ」参照）
 
 PC では左右2カラム、モバイルでは上下2段（それぞれ独立スクロール）で画面いっぱいに表示され、文字起こし・解析タイムラインはアコーディオンで折りたためます。
 
@@ -184,7 +205,7 @@ PC では左右2カラム、モバイルでは上下2段（それぞれ独立ス
 - **LINE 等の通話音声は他アプリから取得できません**（Android のマイク占有・通話音声キャプチャ制限）。通話しながら使う場合は2台構成（通話端末をスピーカーにして、もう1台で周囲音を文字起こし）
 - 話者分離は未対応
 - 文字起こしは平文の SQLite（`server/data/app.db`）に保存されます
-- サーバーは HTTP。tailnet 内でのみ利用する前提です
+- サーバー自体は HTTP（8787番）で待ち受けます。ブラウザから使う場合は `tailscale serve` 経由の HTTPS（上記）が推奨、Android アプリは HTTP のままで問題ありません。どちらも tailnet 内でのみ利用する前提です
 
 ## ライセンス
 
