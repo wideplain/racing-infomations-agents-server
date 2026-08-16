@@ -4,7 +4,7 @@ import { openDb, type DB } from "../src/db/index.js";
 import { buildApp } from "../src/app.js";
 import type { Config } from "../src/config.js";
 import type { AIProvider, AnalyzeInput, AnalyzeOutput } from "../src/ai/types.js";
-import type { WeatherInfo, WeatherProvider, WeatherSnapshotInput, WeatherSnapshotProvider } from "../src/weather/types.js";
+import type { RainNowcastTimeline, WeatherInfo, WeatherProvider, WeatherSnapshotInput, WeatherSnapshotProvider } from "../src/weather/types.js";
 import { RouteResolver } from "../src/route/routeResolver.js";
 
 const config: Config = {
@@ -28,6 +28,7 @@ class FakeWeatherProvider implements WeatherProvider {
 }
 
 class FakeWeatherSnapshotProvider implements WeatherSnapshotProvider {
+  timeline: RainNowcastTimeline | null = null;
   result: WeatherSnapshotInput = {
     isRaining: null,
     precipitationIntensity: null,
@@ -43,6 +44,9 @@ class FakeWeatherSnapshotProvider implements WeatherSnapshotProvider {
   };
   async getWeather(): Promise<WeatherSnapshotInput> {
     return this.result;
+  }
+  async getRainTimeline(): Promise<RainNowcastTimeline | null> {
+    return this.timeline;
   }
 }
 
@@ -664,6 +668,21 @@ describe("API", () => {
         locations: [{ lat: 35.681236, lng: 139.767125, recordedAt: new Date().toISOString() }],
       },
     });
+    // The route screen reads the current point directly rather than waiting for the one-minute
+    // persistence job, while still exposing the weather source's own observation timestamp.
+    fakeWeatherSnapshot.result = {
+      isRaining: false,
+      precipitationIntensity: null,
+      temperatureC: 26.4,
+      humidityPercent: 71,
+      windSpeedMs: 3.2,
+      weatherObservedAt: "2026-08-17T03:00:00.000Z",
+      rainSourceObservedAt: "2026-08-17T03:00:00.000Z",
+      amedasObservedAt: "2026-08-17T02:50:00.000Z",
+      amedasStationId: "44132",
+      amedasStationDistanceKm: 4.2,
+      source: { rain: "jma-nowcast", temperature: "jma-amedas" },
+    };
 
     const weatherRes = await app.inject({
       method: "GET",
@@ -673,6 +692,14 @@ describe("API", () => {
     expect(weatherRes.statusCode).toBe(200);
     expect(weatherRes.json()).toMatchObject({
       weather: { weatherForecast: { etaMinutes: 0, weather: "晴れ" } },
+      snapshot: {
+        latitude: 35.681236,
+        longitude: 139.767125,
+        temperatureC: 26.4,
+        humidityPercent: 71,
+        windSpeedMs: 3.2,
+        amedasObservedAt: "2026-08-17T02:50:00.000Z",
+      },
     });
   });
 
@@ -726,6 +753,34 @@ describe("API", () => {
       amedasStationId: "44132",
       amedasStationDistanceKm: 4.2,
       source: { rain: "jma-nowcast", temperature: "jma-amedas" },
+    });
+  });
+
+  it("returns the future rain timeline for the most recent location", async () => {
+    fakeWeatherSnapshot.timeline = {
+      baseTime: "2026-08-16T12:00:00.000Z",
+      points: [
+        { validAt: "2026-08-16T12:05:00.000Z", isRaining: false },
+        { validAt: "2026-08-16T12:10:00.000Z", isRaining: true },
+      ],
+    };
+    const session = (await app.inject({ method: "POST", url: "/api/sessions", headers: authHeaders(), payload: {} })).json();
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: { locations: [{ lat: 35.681, lng: 139.767, recordedAt: new Date().toISOString() }] },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather-timeline`,
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      location: { latitude: 35.681, longitude: 139.767 },
+      timeline: fakeWeatherSnapshot.timeline,
     });
   });
 

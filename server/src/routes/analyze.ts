@@ -1,7 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import type { DB } from "../db/index.js";
 import type { AIProvider } from "../ai/types.js";
-import type { RainForecast, WeatherForecast, WeatherProvider } from "../weather/types.js";
+import type {
+  RainForecast,
+  WeatherForecast,
+  WeatherProvider,
+  WeatherSnapshot,
+  WeatherSnapshotInput,
+  WeatherSnapshotProvider,
+  RainNowcastProvider,
+} from "../weather/types.js";
 import { SerialQueue, QueueFullError } from "../analysis/queue.js";
 import {
   buildPrompt,
@@ -193,12 +201,29 @@ function enqueueAnalysis(
   return analysis.id;
 }
 
+function toCurrentWeatherSnapshot(
+  location: { lat: number; lng: number },
+  weather: WeatherSnapshotInput
+): WeatherSnapshot {
+  return {
+    recordedAt: new Date().toISOString(),
+    latitude: location.lat,
+    longitude: location.lng,
+    ...weather,
+  };
+}
+
+function isRainNowcastProvider(value: unknown): value is RainNowcastProvider {
+  return typeof (value as Partial<RainNowcastProvider> | undefined)?.getRainTimeline === "function";
+}
+
 export function registerAnalyzeRoutes(
   app: FastifyInstance,
   db: DB,
   provider: AIProvider,
   queue: SerialQueue,
-  weather: WeatherProvider
+  weather: WeatherProvider,
+  weatherSnapshotProvider?: WeatherSnapshotProvider
 ): void {
   // Weather is also available independently of an AI run. The driver HUD must not keep showing
   // an old forecast merely because the last driver analysis predates the first GPS fix.
@@ -207,20 +232,59 @@ export function registerAnalyzeRoutes(
     async (request, reply) => {
       const session = getSession(db, request.params.id);
       if (!session) return reply.code(404).send({ error: "not_found" });
-      const snapshot = getLatestWeatherSnapshot(db, session.id);
+      const storedSnapshot = getLatestWeatherSnapshot(db, session.id);
 
       const location = getLatestLocation(db, session.id);
-      if (!location) return reply.send({ weather: null, snapshot, reason: "location_unavailable" });
+      if (!location) return reply.send({ weather: null, snapshot: storedSnapshot, reason: "location_unavailable" });
       const ageMs = Date.now() - new Date(location.recorded_at).getTime();
       if (!Number.isFinite(ageMs) || ageMs > WEATHER_LOCATION_MAX_AGE_MS) {
-        return reply.send({ weather: null, snapshot, reason: "location_stale" });
+        return reply.send({ weather: null, snapshot: storedSnapshot, reason: "location_stale" });
       }
 
+      // The route screen needs values for the *current GPS point*, not merely the latest
+      // persisted minute snapshot. Source timestamps remain in the response so a fresh page
+      // request never pretends that an older AMeDAS observation is a live measurement.
+      const [forecastResult, currentResult] = await Promise.allSettled([
+        weather.getWeather(location.lat, location.lng),
+        weatherSnapshotProvider?.getWeather(location.lat, location.lng) ?? Promise.resolve(null),
+      ]);
+      const current = currentResult.status === "fulfilled" ? currentResult.value : null;
+      const snapshot = current ? toCurrentWeatherSnapshot(location, current) : storedSnapshot;
+      const forecast = forecastResult.status === "fulfilled" ? forecastResult.value : null;
+      return reply.send({
+        weather: forecast,
+        snapshot,
+        ...(forecastResult.status === "rejected" ? { reason: "weather_unavailable" } : {}),
+      });
+    }
+  );
+
+  // Future rain is a different data product from the stored weather snapshots. N2 contains the
+  // high-resolution nowcast forecast in five-minute steps through the next hour.
+  app.get<{ Params: { id: string } }>(
+    "/sessions/:id/weather-timeline",
+    async (request, reply) => {
+      const session = getSession(db, request.params.id);
+      if (!session) return reply.code(404).send({ error: "not_found" });
+      const location = getLatestLocation(db, session.id);
+      if (!location) return reply.send({ timeline: null, reason: "location_unavailable" });
+      const ageMs = Date.now() - new Date(location.recorded_at).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > WEATHER_LOCATION_MAX_AGE_MS) {
+        return reply.send({ timeline: null, reason: "location_stale" });
+      }
+      if (!isRainNowcastProvider(weatherSnapshotProvider)) {
+        return reply.send({ timeline: null, reason: "weather_unavailable" });
+      }
       try {
-        const result = await weather.getWeather(location.lat, location.lng);
-        return reply.send({ weather: result, snapshot });
-      } catch {
-        return reply.send({ weather: null, snapshot, reason: "weather_unavailable" });
+        const timeline = await weatherSnapshotProvider.getRainTimeline(location.lat, location.lng);
+        return reply.send({
+          timeline,
+          location: { latitude: location.lat, longitude: location.lng, recordedAt: location.recorded_at },
+          ...(timeline ? {} : { reason: "weather_unavailable" }),
+        });
+      } catch (error) {
+        request.log.warn({ err: error }, "weather timeline unavailable");
+        return reply.send({ timeline: null, reason: "weather_unavailable" });
       }
     }
   );

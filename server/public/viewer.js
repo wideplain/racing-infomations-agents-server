@@ -503,21 +503,30 @@ async function refreshHudWeather(force = false) {
 // ── View tabs (ライブ / ルート・時間) ───────────────────────────────────────
 const tabLive = document.getElementById("tabLive");
 const tabRoute = document.getElementById("tabRoute");
+const tabWeather = document.getElementById("tabWeather");
 const routeSection = document.getElementById("routeSection");
+const weatherSection = document.getElementById("weatherSection");
 
 function setActiveTab(tab) {
   const isRoute = tab === "route";
+  const isWeather = tab === "weather";
   routeSection.hidden = !isRoute;
-  viewerSection.hidden = isRoute;
-  tabLive.classList.toggle("active", !isRoute);
+  weatherSection.hidden = !isWeather;
+  viewerSection.hidden = isRoute || isWeather;
+  tabLive.classList.toggle("active", !isRoute && !isWeather);
   tabRoute.classList.toggle("active", isRoute);
-  tabLive.setAttribute("aria-selected", String(!isRoute));
+  tabWeather.classList.toggle("active", isWeather);
+  tabLive.setAttribute("aria-selected", String(!isRoute && !isWeather));
   tabRoute.setAttribute("aria-selected", String(isRoute));
+  tabWeather.setAttribute("aria-selected", String(isWeather));
   if (isRoute) startRouteView();
   else stopRouteView();
+  if (isWeather) startWeatherView();
+  else stopWeatherView();
 }
 tabLive.addEventListener("click", () => setActiveTab("live"));
 tabRoute.addEventListener("click", () => setActiveTab("route"));
+tabWeather.addEventListener("click", () => setActiveTab("weather"));
 
 // ── Route / time view ───────────────────────────────────────────────────────
 const mapEl = document.getElementById("map");
@@ -527,6 +536,7 @@ const routeSpeedSelect = document.getElementById("routeSpeed");
 const routeTimeLabel = document.getElementById("routeTimeLabel");
 const routeHistoryEl = document.getElementById("routeHistory");
 const routeWeatherEl = document.getElementById("routeWeather");
+const weatherTimelineEl = document.getElementById("weatherTimeline");
 
 const ROUTE_TRACK_MAX_DRAW = 5000;
 // A route-history row is a meaningful movement record, not a wall-clock sample. This is well
@@ -591,6 +601,11 @@ let routeWeatherSnapshots = [];
 let routeWeatherSnapshotsFetchedAt = 0;
 let routeWeatherSnapshotsSessionId = null;
 let routeWeatherSnapshotsInFlight = false;
+let weatherViewTimer = null;
+let weatherForecastTimeline = null;
+let weatherForecastTimelineSessionId = null;
+let weatherForecastTimelineFetchedAt = 0;
+let weatherForecastTimelineInFlight = false;
 
 function resetRouteSessionData() {
   routeLoc = [];
@@ -601,8 +616,12 @@ function resetRouteSessionData() {
   routeWeatherSnapshots = [];
   routeWeatherSnapshotsFetchedAt = 0;
   routeWeatherSnapshotsSessionId = null;
+  weatherForecastTimeline = null;
+  weatherForecastTimelineSessionId = null;
+  weatherForecastTimelineFetchedAt = 0;
   routeSlider.value = "0";
   renderRouteHistory();
+  renderWeatherTimeline();
 }
 
 async function loadRouteHistoryFull() {
@@ -662,6 +681,44 @@ function stopRouteView() {
   if (routePollTimer !== null) {
     clearInterval(routePollTimer);
     routePollTimer = null;
+  }
+}
+
+function startWeatherView() {
+  refreshWeatherForecastTimeline(true);
+  if (weatherViewTimer === null) {
+    weatherViewTimer = setInterval(() => refreshWeatherForecastTimeline(), ROUTE_WEATHER_SNAPSHOT_REFRESH_MS);
+  }
+}
+
+async function refreshWeatherForecastTimeline(force = false) {
+  if (!sessionId || weatherForecastTimelineInFlight) return;
+  if (!force && Date.now() - weatherForecastTimelineFetchedAt < ROUTE_WEATHER_SNAPSHOT_REFRESH_MS) return;
+  const requestedSessionId = sessionId;
+  weatherForecastTimelineInFlight = true;
+  try {
+    const response = await api(`/api/sessions/${requestedSessionId}/weather-timeline`);
+    if (requestedSessionId !== sessionId) return;
+    weatherForecastTimeline = response.timeline || null;
+    weatherForecastTimelineSessionId = requestedSessionId;
+    weatherForecastTimelineFetchedAt = Date.now();
+    renderWeatherTimeline();
+  } catch (err) {
+    console.warn("weather forecast timeline refresh failed", err);
+    if (requestedSessionId === sessionId) {
+      weatherForecastTimeline = null;
+      weatherForecastTimelineSessionId = requestedSessionId;
+      renderWeatherTimeline();
+    }
+  } finally {
+    weatherForecastTimelineInFlight = false;
+  }
+}
+
+function stopWeatherView() {
+  if (weatherViewTimer !== null) {
+    clearInterval(weatherViewTimer);
+    weatherViewTimer = null;
   }
 }
 
@@ -730,6 +787,7 @@ async function refreshRouteWeatherSnapshots(force = false) {
     routeWeatherSnapshotsSessionId = requestedSessionId;
     routeWeatherSnapshotsFetchedAt = Date.now();
     renderRouteHistory();
+    renderWeatherTimeline();
   } catch (err) {
     console.warn("route weather snapshot refresh failed", err);
   } finally {
@@ -917,6 +975,37 @@ function routeHistoryWeatherText(snapshot) {
   if (typeof snapshot.humidityPercent === "number") values.push(`${snapshot.humidityPercent.toFixed(0)}%`);
   if (typeof snapshot.windSpeedMs === "number") values.push(`${snapshot.windSpeedMs.toFixed(1)}m/s`);
   return values.length > 0 ? values.join(" ") : "—";
+}
+
+function renderWeatherTimeline() {
+  if (!weatherTimelineEl) return;
+  if (weatherForecastTimelineSessionId !== sessionId) {
+    weatherTimelineEl.textContent = "位置情報を待っています";
+    return;
+  }
+  if (!weatherForecastTimeline?.points?.length) {
+    weatherTimelineEl.textContent = "予報を取得できませんでした";
+    return;
+  }
+  const formatTime = (value) => new Date(value).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  const baseTime = weatherForecastTimeline.baseTime ? formatTime(weatherForecastTimeline.baseTime) : "—";
+  const now = Date.now();
+  const rows = weatherForecastTimeline.points.map((point) => {
+    const pointTime = new Date(point.validAt).getTime();
+    const minutes = Number.isFinite(pointTime) ? Math.max(0, Math.round((pointTime - now) / 60_000)) : null;
+    const eta = minutes === null ? formatTime(point.validAt) : minutes === 0 ? "まもなく" : `${minutes}分後`;
+    const rain = point.isRaining === true ? "☔ 雨" : point.isRaining === false ? "☀️ 雨なし" : "— 未取得";
+    return `<article class="weather-timeline-entry">
+      <time class="weather-timeline-time">${escapeHtml(eta)}<br>${escapeHtml(formatTime(point.validAt))}</time>
+      <div>
+        <div class="weather-timeline-values forecast">
+          <span class="weather-timeline-value rain">${escapeHtml(rain)}</span>
+          <p class="weather-timeline-source">気象庁 高解像度降水ナウキャスト · 基準 ${escapeHtml(baseTime)}</p>
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+  weatherTimelineEl.innerHTML = rows;
 }
 
 function renderRouteHistory() {

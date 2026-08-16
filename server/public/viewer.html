@@ -31,16 +31,9 @@
     <nav class="view-tabs" role="tablist">
       <button id="tabLive" type="button" class="view-tab active" role="tab" aria-selected="true">ライブ</button>
       <button id="tabRoute" type="button" class="view-tab" role="tab" aria-selected="false">ルート・時間</button>
+      <button id="tabWeather" type="button" class="view-tab" role="tab" aria-selected="false">天気</button>
     </nav>
     <button id="hudToggle" type="button" aria-controls="driverHud" aria-expanded="false">🏎 ドライバー表示</button>
-    <details class="apikey-details">
-      <summary>API Key</summary>
-      <div class="apikey-row">
-        <label>API Key
-          <input id="apiKey" type="password" placeholder="X-Api-Key（不要な場合は空欄）" />
-        </label>
-      </div>
-    </details>
   </div>
 </header>
 
@@ -50,13 +43,13 @@
   <span id="statusSegCount" class="status-item">発話 0</span>
   <span id="statusAnalysisCount" class="status-item">解析 0</span>
   <span id="statusLastUpdate" class="status-item">更新 -</span>
-  <span id="statusLocation" class="status-item" hidden></span>
 </div>
 
 <main>
   <section id="viewerSection" class="screen" hidden>
     <details id="segmentsDetails" class="viewer-pane" open>
       <summary>文字起こし</summary>
+      <button id="segmentsLatest" class="latest-button" type="button" hidden>最新へ移動</button>
       <div id="segments" class="viewer-scroll"></div>
     </details>
     <details id="analysesDetails" class="viewer-pane" open>
@@ -100,7 +93,28 @@
       </details>
     </div>
   </section>
+
+  <section id="weatherSection" class="screen weather-screen" hidden>
+    <div class="weather-screen-heading">
+      <div><p>RAIN NOWCAST</p><h2>これからの雨</h2></div>
+      <span>現在地・次の60分</span>
+    </div>
+    <div id="weatherTimeline" class="weather-timeline" aria-live="polite">
+      位置情報を待っています
+    </div>
+  </section>
 </main>
+
+<footer class="viewer-footer">
+  <details class="apikey-details">
+    <summary>API Key</summary>
+    <div class="apikey-row">
+      <label>API Key
+        <input id="apiKey" type="password" placeholder="X-Api-Key（不要な場合は空欄）" />
+      </label>
+    </div>
+  </details>
+</footer>
 
 <!-- Driver HUD: what the person actually driving/working glances at. Covers the whole viewport
      with only the newest driver-mode result in huge type, sized to fit an iPhone SE screen

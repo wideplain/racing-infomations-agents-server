@@ -52,3 +52,19 @@ export type WeatherSnapshotInput = Omit<WeatherSnapshot, "recordedAt" | "latitud
 export interface WeatherSnapshotProvider {
   getWeather(latitude: number, longitude: number): Promise<WeatherSnapshotInput>;
 }
+
+/** Five-minute precipitation forecasts for one point. These are intentionally separate from
+ * WeatherSnapshot: AMeDAS supplies observations, not a point forecast for temperature or wind. */
+export interface RainNowcastPoint {
+  validAt: string;
+  isRaining: boolean | null;
+}
+
+export interface RainNowcastTimeline {
+  baseTime: string;
+  points: RainNowcastPoint[];
+}
+
+export interface RainNowcastProvider {
+  getRainTimeline(latitude: number, longitude: number): Promise<RainNowcastTimeline | null>;
+}

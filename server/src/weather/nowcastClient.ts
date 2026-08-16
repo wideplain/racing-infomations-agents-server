@@ -1,7 +1,9 @@
 import { inflateSync } from "node:zlib";
 import { TtlCache } from "./cache.js";
+import type { RainNowcastTimeline } from "./types.js";
 
 const TARGET_TIMES_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json";
+const FORECAST_TARGET_TIMES_URL = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N2.json";
 const TILE_ZOOM = 10;
 const TILE_SIZE = 256;
 
@@ -122,6 +124,7 @@ export class JmaNowcastClient {
   private fetchFn: typeof fetch;
   private timeoutMs: number;
   private targetCache = new TtlCache<NowcastTime | null>();
+  private forecastTargetCache = new TtlCache<NowcastTime[] | null>();
   private tileCache = new TtlCache<boolean | null>();
 
   constructor(opts: { fetchFn?: typeof fetch; timeoutMs?: number } = {}) {
@@ -134,20 +137,43 @@ export class JmaNowcastClient {
       const target = await this.getTargetTime();
       if (!target) return { isRaining: null, observedAt: null };
       const coordinate = toTileCoordinate(latitude, longitude);
-      const key = `${target.basetime}:${target.validtime}:${coordinate.x}:${coordinate.y}`;
-      let opaque = this.tileCache.get(key);
-      if (opaque === undefined) {
-        const url = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${target.basetime}/none/${target.validtime}/surf/hrpns/${TILE_ZOOM}/${coordinate.x}/${coordinate.y}.png`;
-        const response = await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeoutMs) });
-        if (!response.ok) opaque = null;
-        else opaque = isPngPixelOpaque(new Uint8Array(await response.arrayBuffer()), coordinate.pixelX, coordinate.pixelY);
-        // The basetime is part of the key: the same tile is never fetched again while target time is unchanged.
-        this.tileCache.set(key, opaque, 30 * 60 * 1000);
-      }
+      const opaque = await this.getTileRain(target, coordinate);
       return { isRaining: opaque, observedAt: jmaTimeToIso(target.validtime) };
     } catch {
       return { isRaining: null, observedAt: null };
     }
+  }
+
+  /** JMA's N2 list is the forecast counterpart to N1: five-minute rain predictions from the
+   * latest basetime through +60 minutes.  The browser asks for this only while its weather tab
+   * is open; tile responses are reused until JMA changes the basetime. */
+  async getRainTimeline(latitude: number, longitude: number): Promise<RainNowcastTimeline | null> {
+    try {
+      const targets = await this.getForecastTargetTimes();
+      if (!targets?.length) return null;
+      const coordinate = toTileCoordinate(latitude, longitude);
+      const sorted = [...targets].sort((a, b) => a.validtime.localeCompare(b.validtime));
+      const points = await Promise.all(sorted.map(async (target) => ({
+        validAt: jmaTimeToIso(target.validtime) ?? target.validtime,
+        isRaining: await this.getTileRain(target, coordinate),
+      })));
+      return { baseTime: jmaTimeToIso(sorted[0].basetime) ?? sorted[0].basetime, points };
+    } catch {
+      return null;
+    }
+  }
+
+  private async getTileRain(target: NowcastTime, coordinate: TileCoordinate): Promise<boolean | null> {
+    const key = `${target.basetime}:${target.validtime}:${coordinate.x}:${coordinate.y}`;
+    let opaque = this.tileCache.get(key);
+    if (opaque !== undefined) return opaque;
+    const url = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${target.basetime}/none/${target.validtime}/surf/hrpns/${TILE_ZOOM}/${coordinate.x}/${coordinate.y}.png`;
+    const response = await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeoutMs) });
+    if (!response.ok) opaque = null;
+    else opaque = isPngPixelOpaque(new Uint8Array(await response.arrayBuffer()), coordinate.pixelX, coordinate.pixelY);
+    // The basetime is part of the key: the same tile is never fetched again while target time is unchanged.
+    this.tileCache.set(key, opaque, 30 * 60 * 1000);
+    return opaque;
   }
 
   private async getTargetTime(): Promise<NowcastTime | null> {
@@ -161,6 +187,23 @@ export class JmaNowcastClient {
       const target = latest?.basetime && latest.validtime ? { basetime: latest.basetime, validtime: latest.validtime } : null;
       this.targetCache.set("latest", target, 60_000);
       return target;
+    } catch {
+      return null;
+    }
+  }
+
+  private async getForecastTargetTimes(): Promise<NowcastTime[] | null> {
+    const cached = this.forecastTargetCache.get("forecast");
+    if (cached !== undefined) return cached;
+    try {
+      const response = await this.fetchFn(FORECAST_TARGET_TIMES_URL, { signal: AbortSignal.timeout(this.timeoutMs) });
+      if (!response.ok) return null;
+      const list = (await response.json()) as Array<{ basetime?: string; validtime?: string }>;
+      const targets = list.flatMap((entry) => entry.basetime && entry.validtime
+        ? [{ basetime: entry.basetime, validtime: entry.validtime }]
+        : []);
+      this.forecastTargetCache.set("forecast", targets, 60_000);
+      return targets;
     } catch {
       return null;
     }

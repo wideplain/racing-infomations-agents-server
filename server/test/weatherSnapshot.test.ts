@@ -69,6 +69,31 @@ describe("JMA current-weather clients", () => {
     expect(tileCalls).toBe(2);
   });
 
+  it("returns the next hour of five-minute rain forecasts and caches their tiles", async () => {
+    const forecastTimes = ["20260816100000", "20260816100500", "20260816101000"];
+    let tileCalls = 0;
+    const fetchFn = vi.fn(async (url: string | URL) => {
+      const value = String(url);
+      if (value.includes("targetTimes_N2")) {
+        return new Response(JSON.stringify(forecastTimes.map((validtime) => ({ basetime: "20260816095500", validtime }))));
+      }
+      tileCalls++;
+      return new Response(rgbaPng(256, 256, new Array(256 * 256 * 4).fill(0)));
+    }) as unknown as typeof fetch;
+    const client = new JmaNowcastClient({ fetchFn });
+
+    await expect(client.getRainTimeline(35.681236, 139.767125)).resolves.toMatchObject({
+      baseTime: "2026-08-16T00:55:00.000Z",
+      points: [
+        { validAt: "2026-08-16T01:00:00.000Z", isRaining: false },
+        { validAt: "2026-08-16T01:05:00.000Z", isRaining: false },
+        { validAt: "2026-08-16T01:10:00.000Z", isRaining: false },
+      ],
+    });
+    await client.getRainTimeline(35.681236, 139.767125);
+    expect(tileCalls).toBe(3);
+  });
+
   it("returns null rain data rather than throwing when JMA fails", async () => {
     const client = new JmaNowcastClient({ fetchFn: (async () => { throw new Error("offline"); }) as typeof fetch });
     await expect(client.getRain(35.681236, 139.767125)).resolves.toEqual({ isRaining: null, observedAt: null });

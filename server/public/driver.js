@@ -43,7 +43,9 @@ let lastAnalysisSignature = "";
 let lastSessionCheckAt = 0;
 let weatherInFlight = false;
 let previousSpeedSample = null;
-let latestSpeedMps = null;
+// A stopped driver must still see a speed value. Some browsers leave coords.speed unset
+// while stationary, so start at zero and replace it as soon as GPS or movement supplies one.
+let latestSpeedMps = 0;
 let latestSpeedSource = "";
 
 function setConnection(ok) {
@@ -98,8 +100,6 @@ function renderWeather() {
 }
 
 function renderSpeed() {
-  speedEl.hidden = latestSpeedMps === null;
-  if (latestSpeedMps === null) return;
   speedValueEl.textContent = `${Math.round(latestSpeedMps * 3.6)} km/h`;
   speedSourceEl.textContent = latestSpeedSource;
 }
