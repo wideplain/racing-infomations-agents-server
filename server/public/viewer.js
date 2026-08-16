@@ -511,7 +511,9 @@ const routeHistoryEl = document.getElementById("routeHistory");
 const routeWeatherEl = document.getElementById("routeWeather");
 
 const ROUTE_TRACK_MAX_DRAW = 5000;
-const ROUTE_BUCKET_MS = 5 * 60 * 1000;
+// A route-history row is a meaningful movement record, not a wall-clock sample. This is well
+// above ordinary GPS drift while producing useful checkpoints while driving.
+const ROUTE_HISTORY_DISTANCE_METERS = 250;
 
 let map = null;
 // True once the MapLibre style has finished loading and sources/layers below exist. Anything
@@ -772,35 +774,52 @@ routePlayBtn.addEventListener("click", () => {
   else startRoutePlayback();
 });
 
-// ── Interval history (5-minute buckets) ─────────────────────────────────────
-function renderRouteHistory() {
-  const buckets = [];
-  let current = null;
-  for (const loc of routeLoc) {
-    const t = new Date(loc.recorded_at).getTime();
-    const bucketStart = Math.floor(t / ROUTE_BUCKET_MS) * ROUTE_BUCKET_MS;
-    if (!current || current.bucketStart !== bucketStart) {
-      current = { bucketStart, points: [] };
-      buckets.push(current);
-    }
-    current.points.push(loc);
-  }
+// ── Movement history ────────────────────────────────────────────────────────
+function locationDistanceMeters(a, b) {
+  const radians = Math.PI / 180;
+  const lat1 = a.lat * radians;
+  const lat2 = b.lat * radians;
+  const dLat = (b.lat - a.lat) * radians;
+  const dLng = (b.lng - a.lng) * radians;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
 
-  const rows = buckets
-    .map((b) => {
-      const first = b.points[0];
-      const speeds = b.points
+function routeHistoryEntries() {
+  if (routeLoc.length === 0) return [];
+  const entries = [{ location: routeLoc[0], points: [routeLoc[0]] }];
+  let lastRecorded = routeLoc[0];
+  let segmentPoints = [routeLoc[0]];
+
+  for (const loc of routeLoc.slice(1)) {
+    segmentPoints.push(loc);
+    if (locationDistanceMeters(lastRecorded, loc) < ROUTE_HISTORY_DISTANCE_METERS) continue;
+    entries[entries.length - 1].points = segmentPoints;
+    entries.push({ location: loc, points: [loc] });
+    lastRecorded = loc;
+    segmentPoints = [loc];
+  }
+  return entries;
+}
+
+function renderRouteHistory() {
+  const entries = routeHistoryEntries();
+
+  const rows = entries
+    .map((entry) => {
+      const location = entry.location;
+      const speeds = entry.points
         .map((p) => p.speed_mps)
         .filter((s) => typeof s === "number" && !Number.isNaN(s));
       const avgSpeedKmh =
         speeds.length > 0 ? ((speeds.reduce((a, c) => a + c, 0) / speeds.length) * 3.6).toFixed(1) : "-";
-      const time = new Date(first.recorded_at).toLocaleTimeString("ja-JP");
-      const coord = `${first.lat.toFixed(5)}, ${first.lng.toFixed(5)}`;
-      return `<tr class="route-history-row" data-recorded-at="${escapeHtml(first.recorded_at)}">
+      const time = new Date(location.recorded_at).toLocaleTimeString("ja-JP");
+      const coord = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`;
+      return `<tr class="route-history-row" data-recorded-at="${escapeHtml(location.recorded_at)}">
         <td>${escapeHtml(time)}</td>
         <td>${escapeHtml(coord)}</td>
         <td>${escapeHtml(avgSpeedKmh)} km/h</td>
-        <td>${b.points.length}</td>
+        <td>${entry.points.length}</td>
       </tr>`;
     })
     .join("");
@@ -821,12 +840,14 @@ function renderRouteHistory() {
 }
 
 function highlightActiveHistoryRow(recordedAt) {
-  const t = new Date(recordedAt).getTime();
-  const bucketStart = Math.floor(t / ROUTE_BUCKET_MS) * ROUTE_BUCKET_MS;
-  routeHistoryEl.querySelectorAll(".route-history-row").forEach((row) => {
-    const rowBucket = Math.floor(new Date(row.dataset.recordedAt).getTime() / ROUTE_BUCKET_MS) * ROUTE_BUCKET_MS;
-    row.classList.toggle("active", rowBucket === bucketStart);
-  });
+  const targetTime = new Date(recordedAt).getTime();
+  const rows = [...routeHistoryEl.querySelectorAll(".route-history-row")];
+  let active = rows[0] ?? null;
+  for (const row of rows) {
+    if (new Date(row.dataset.recordedAt).getTime() <= targetTime) active = row;
+    else break;
+  }
+  rows.forEach((row) => row.classList.toggle("active", row === active));
 }
 
 // ── Named route (国土地理院リバースジオコード) ─────────────────────────────
