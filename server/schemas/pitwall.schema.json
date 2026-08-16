@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "statusSummary": { "type": "string" },
+    "change": { "type": "string" },
+    "question": { "type": "string" },
+    "proposal": { "type": "string" },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+    "needsReview": { "type": "boolean" },
+    "facts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": [
+    "statusSummary",
+    "change",
+    "question",
+    "proposal",
+    "confidence",
+    "needsReview",
+    "facts",
+    "warnings"
+  ],
+  "additionalProperties": false
+}

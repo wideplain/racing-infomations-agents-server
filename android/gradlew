@@ -1,0 +1,22 @@
+#!/bin/sh
+# Standard Gradle wrapper launcher script. See gradle/wrapper/wrapper.properties.tmp
+# (rename to gradle-wrapper.properties, or run `gradle wrapper` once) for the
+# distribution this wrapper will download. The wrapper jar itself is not
+# vendored in this checkout; run `gradle wrapper` locally to generate
+# gradle/wrapper/gradle-wrapper.jar and gradle-wrapper.properties before using
+# this script, or just use a system-installed `gradle` directly.
+set -e
+
+APP_HOME=$(cd "$(dirname "$0")" && pwd)
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+WRAPPER_PROPS="$APP_HOME/gradle/wrapper/gradle-wrapper.properties"
+
+if [ ! -f "$WRAPPER_JAR" ] || [ ! -f "$WRAPPER_PROPS" ]; then
+    echo "gradle-wrapper.jar / gradle-wrapper.properties not found." >&2
+    echo "Run 'gradle wrapper --gradle-version 8.7' once in this directory to generate them," >&2
+    echo "or rename gradle/wrapper/wrapper.properties.tmp to gradle-wrapper.properties and" >&2
+    echo "use a system-installed gradle instead (gradle :app:assembleDebug)." >&2
+    exit 1
+fi
+
+exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" -cp "$WRAPPER_JAR" org.gradle.wrapper.GradleWrapperMain "$@"

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP is only permitted for Tailscale tailnet hosts (ts.net and its
+  MagicDNS subdomains). The rest of the app follows the OS default (HTTPS
+  only) — this is NOT an app-wide cleartext allowance. If the Mac server is
+  later put behind `tailscale cert` (real TLS), this override can be removed.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">ts.net</domain>
+    </domain-config>
+
+    <!-- If you use the 100.x Tailscale IP fallback instead of the MagicDNS
+         name, add its exact IP here (network-security-config has no CIDR
+         support, so it must be listed literally), e.g.:
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">100.64.1.23</domain>
+    </domain-config>
+    -->
+</network-security-config>

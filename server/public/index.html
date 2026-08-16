@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>会話ログ解析</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header>
+  <h1>会話ログ解析</h1>
+  <details class="apikey-details">
+    <summary>API Key</summary>
+    <div class="apikey-row">
+      <label>API Key
+        <input id="apiKey" type="password" placeholder="X-Api-Key" />
+      </label>
+    </div>
+  </details>
+</header>
+
+<main>
+  <section id="sessionListSection">
+    <h2>セッション</h2>
+    <button id="newSessionBtn">新規セッション作成</button>
+    <ul id="sessionList"></ul>
+  </section>
+
+  <section id="sessionDetailSection" hidden>
+    <button id="backBtn">← 一覧へ戻る</button>
+    <a id="openViewerLink" href="#" target="_blank" rel="noopener">👁 ビュワーで開く</a>
+    <h2 id="sessionTitle"></h2>
+
+    <div id="segments" class="segments"></div>
+
+    <form id="segmentForm">
+      <textarea id="segmentText" placeholder="テキストを入力して送信（Android アプリ代わりのテスト投入）" rows="2"></textarea>
+      <button type="submit">送信</button>
+    </form>
+
+    <button id="analyzeBtn">AI解析</button>
+    <div id="analyzeStatus"></div>
+
+    <div id="analysisResult" class="analysis-result" hidden>
+      <h3>要約</h3>
+      <p id="resSummary"></p>
+      <h3>解釈</h3>
+      <p id="resInterpretation"></p>
+      <h3>アドバイス</h3>
+      <ul id="resAdvice"></ul>
+      <h3>返答案</h3>
+      <p id="resResponse"></p>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "summary": { "type": "string" },
+    "interpretation": { "type": "string" },
+    "advice": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "suggested_response": { "type": "string" },
+    "confidence": { "type": "number" },
+    "notes": { "type": ["string", "null"] }
+  },
+  "required": ["summary", "interpretation", "advice", "suggested_response", "confidence", "notes"],
+  "additionalProperties": false
+}

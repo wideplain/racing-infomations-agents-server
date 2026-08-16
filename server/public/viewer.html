@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ビュワー - 会話ログ</title>
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/viewer.css" />
+</head>
+<body>
+<header>
+  <h1 id="pageTitle">ビュワー</h1>
+  <details class="apikey-details">
+    <summary>API Key</summary>
+    <div class="apikey-row">
+      <label>API Key
+        <input id="apiKey" type="password" placeholder="X-Api-Key（不要な場合は空欄）" />
+      </label>
+    </div>
+  </details>
+</header>
+
+<main>
+  <section id="noSessionSection" hidden>
+    <p>URLに <code>?session=&lt;セッションID&gt;</code> を付けて開いてください。</p>
+  </section>
+
+  <section id="viewerSection" hidden>
+    <div class="viewer-columns">
+      <div class="viewer-col">
+        <details id="segmentsDetails" open>
+          <summary>文字起こし</summary>
+          <div id="segments" class="segments viewer-scroll"></div>
+        </details>
+      </div>
+      <div class="viewer-col">
+        <details id="analysesDetails" open>
+          <summary>AI解析タイムライン</summary>
+          <div id="analyses" class="viewer-scroll"></div>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/viewer.js"></script>
+</body>
+</html>
