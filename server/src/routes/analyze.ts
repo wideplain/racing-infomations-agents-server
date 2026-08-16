@@ -240,25 +240,34 @@ export function registerAnalyzeRoutes(
       const storedSnapshot = getLatestWeatherSnapshot(db, session.id);
 
       const location = getLatestLocation(db, session.id);
-      if (!location) return reply.send({ weather: null, snapshot: storedSnapshot, reason: "location_unavailable" });
+      if (!location)
+        return reply.send({ weather: null, snapshot: storedSnapshot, precipitation: null, reason: "location_unavailable" });
       const ageMs = Date.now() - new Date(location.recorded_at).getTime();
       if (!Number.isFinite(ageMs) || ageMs > WEATHER_LOCATION_MAX_AGE_MS) {
-        return reply.send({ weather: null, snapshot: storedSnapshot, reason: "location_stale" });
+        return reply.send({ weather: null, snapshot: storedSnapshot, precipitation: null, reason: "location_stale" });
       }
 
       // The route screen needs values for the *current GPS point*, not merely the latest
       // persisted minute snapshot. Source timestamps remain in the response so a fresh page
       // request never pretends that an older AMeDAS observation is a live measurement.
-      const [forecastResult, currentResult] = await Promise.allSettled([
+      const [forecastResult, currentResult, precipitationResult] = await Promise.allSettled([
         weather.getWeather(location.lat, location.lng),
         weatherSnapshotProvider?.getWeather(location.lat, location.lng) ?? Promise.resolve(null),
+        isPrecipitationOutlookProvider(weather)
+          ? weather.getPrecipitationOutlook(location.lat, location.lng)
+          : Promise.resolve(null),
       ]);
       const current = currentResult.status === "fulfilled" ? currentResult.value : null;
       const snapshot = current ? toCurrentWeatherSnapshot(location, current) : storedSnapshot;
       const forecast = forecastResult.status === "fulfilled" ? forecastResult.value : null;
+      if (precipitationResult.status === "rejected") {
+        request.log.warn({ err: precipitationResult.reason }, "precipitation outlook unavailable");
+      }
+      const precipitation = precipitationResult.status === "fulfilled" ? precipitationResult.value : null;
       return reply.send({
         weather: forecast,
         snapshot,
+        precipitation,
         ...(forecastResult.status === "rejected" ? { reason: "weather_unavailable" } : {}),
       });
     }

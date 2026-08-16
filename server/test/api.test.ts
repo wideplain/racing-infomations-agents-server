@@ -656,6 +656,11 @@ describe("API", () => {
       source: "jma",
       weatherForecast: { etaMinutes: 0, weather: "晴れ" },
     };
+    fakeWeather.precipitation = {
+      areaName: "南部",
+      reportedAt: "2026-08-16T17:00:00+09:00",
+      slots: [{ startAt: "2026-08-16T09:00:00.000Z", endAt: "2026-08-16T15:00:00.000Z", probability: 40 }],
+    };
     const createRes = await app.inject({
       method: "POST",
       url: "/api/sessions",
@@ -704,7 +709,43 @@ describe("API", () => {
         windSpeedMs: 3.2,
         amedasObservedAt: "2026-08-17T02:50:00.000Z",
       },
+      precipitation: fakeWeather.precipitation,
     });
+  });
+
+  // The driver HUD polls only this endpoint, never weather-timeline, so it must carry the
+  // precipitation probability itself; but a failure to fetch it must not blank out the weather
+  // or snapshot that the same request already has in hand.
+  it("still returns weather and snapshot when the precipitation outlook fails", async () => {
+    fakeWeather.result = {
+      summaryText: "東京都: 晴れ",
+      fetchedAt: new Date().toISOString(),
+      source: "jma",
+      weatherForecast: { etaMinutes: 0, weather: "晴れ" },
+    };
+    fakeWeather.getPrecipitationOutlook = async () => {
+      throw new Error("precipitation fetch failed");
+    };
+    const session = (await app.inject({ method: "POST", url: "/api/sessions", headers: authHeaders(), payload: {} })).json();
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: {
+        locations: [{ lat: 35.681236, lng: 139.767125, recordedAt: new Date().toISOString() }],
+      },
+    });
+
+    const weatherRes = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather`,
+      headers: authHeaders(),
+    });
+    expect(weatherRes.statusCode).toBe(200);
+    const body = weatherRes.json();
+    expect(body.weather).toMatchObject({ weatherForecast: { etaMinutes: 0, weather: "晴れ" } });
+    expect(body.precipitation).toBeNull();
+    expect(body.reason).toBeUndefined();
   });
 
   it("records one current-weather snapshot per session minute without blocking location posts", async () => {

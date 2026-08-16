@@ -42,10 +42,15 @@ h1 { margin: 0; font-size: 1rem; line-height: 1; letter-spacing: .04em; }
 .action { margin: 0; padding: 14px 16px; border-left: 0; background: rgba(255,93,61,.08); color: var(--text); font-size: clamp(1.55rem, 7.5vw, 2.8rem); font-weight: 750; line-height: 1.25; }
 .watch { margin: 0; color: var(--accent-soft); font-size: clamp(1.15rem, 5.3vw, 1.75rem); font-weight: 750; line-height: 1.3; }
 .weather { align-self: end; width: 100%; margin: 0; padding-top: 18px; border-top: 1px solid var(--line); }
-.weather-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.weather-cell { display: grid; min-width: 0; min-height: 68px; padding: 12px; border-radius: 10px; background: rgba(11,16,25,.42); place-items: center; }
-.weather-cell strong { display: block; overflow: hidden; color: var(--text); font-size: clamp(1.6rem, 6.7vw, 2.5rem); font-variant-numeric: tabular-nums; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+/* Three columns. The six tracks exist only so the five cells fill both rows exactly: the first
+   three span two tracks each, the last two span three, leaving no hole in the second row. */
+.weather-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.weather-cell { grid-column: span 2; display: grid; min-width: 0; min-height: 64px; padding: 10px 6px; border-radius: 10px; background: rgba(11,16,25,.42); place-items: center; align-content: center; row-gap: 4px; }
+.weather-cell-wide { grid-column: span 3; }
+.weather-label { max-width: 100%; overflow: hidden; color: var(--muted); font-size: clamp(.62rem, 2.8vw, .82rem); font-weight: 800; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.weather-cell strong { display: block; overflow: hidden; color: var(--text); font-size: clamp(1.5rem, 6.4vw, 2.4rem); font-variant-numeric: tabular-nums; letter-spacing: -.03em; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .weather-rain strong { color: var(--accent-soft); }
+.weather-pop strong.high { color: var(--danger); }
 .speed-telemetry { display: grid; justify-items: start; gap: 1px; min-width: 0; }
 .speed-telemetry strong { color: var(--good); font-size: clamp(2.5rem, 10vw, 4.5rem); font-variant-numeric: tabular-nums; letter-spacing: -.06em; line-height: .95; white-space: nowrap; }
 .speed-telemetry small { display: none; }
@@ -53,4 +58,4 @@ h1 { margin: 0; font-size: 1rem; line-height: 1; letter-spacing: .04em; }
 .meta { margin: 0; color: var(--muted); font-size: clamp(.88rem, 3.8vw, 1.08rem); }
 .api-key { color: var(--muted); font-size: .75rem; } .api-key input { width: 100%; margin-top: 7px; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); }
 [hidden] { display: none !important; }
-@media (max-width: 560px) { .weather-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .weather-cell { padding: 9px; } }
+@media (max-width: 560px) { .weather-grid { gap: 6px; } .weather-cell { min-height: 58px; padding: 8px 4px; } }
