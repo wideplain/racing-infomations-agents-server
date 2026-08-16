@@ -6,42 +6,107 @@
 <title>ビュワー - 会話ログ</title>
 <link rel="stylesheet" href="/style.css" />
 <link rel="stylesheet" href="/viewer.css" />
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  integrity="sha384-MinO0mNliZ3vwppuPOUnGa+iq619pfMhLVUXfC4LHwSCvF9H+6P/KO4Q7qBOYV5V"
+  crossorigin="anonymous"
+/>
+<script
+  src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"
+  integrity="sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj"
+  crossorigin="anonymous"
+></script>
 </head>
 <body>
 <header>
   <h1 id="pageTitle">ビュワー</h1>
-  <details class="apikey-details">
-    <summary>API Key</summary>
-    <div class="apikey-row">
-      <label>API Key
-        <input id="apiKey" type="password" placeholder="X-Api-Key（不要な場合は空欄）" />
-      </label>
-    </div>
-  </details>
+  <div class="header-actions">
+    <nav class="view-tabs" role="tablist">
+      <button id="tabLive" type="button" class="view-tab active" role="tab" aria-selected="true">ライブ</button>
+      <button id="tabRoute" type="button" class="view-tab" role="tab" aria-selected="false">ルート・時間</button>
+    </nav>
+    <button id="hudToggle" type="button">🏎 ドライバー表示</button>
+    <details class="apikey-details">
+      <summary>API Key</summary>
+      <div class="apikey-row">
+        <label>API Key
+          <input id="apiKey" type="password" placeholder="X-Api-Key（不要な場合は空欄）" />
+        </label>
+      </div>
+    </details>
+  </div>
 </header>
 
+<div id="statusBar" class="status-bar">
+  <span id="statusSession" class="status-item">-</span>
+  <span id="statusConnection" class="status-item">接続中</span>
+  <span id="statusSegCount" class="status-item">発話 0</span>
+  <span id="statusAnalysisCount" class="status-item">解析 0</span>
+  <span id="statusLastUpdate" class="status-item">更新 -</span>
+  <span id="statusLocation" class="status-item" hidden></span>
+</div>
+
 <main>
-  <section id="noSessionSection" hidden>
-    <p>URLに <code>?session=&lt;セッションID&gt;</code> を付けて開いてください。</p>
+  <section id="viewerSection" class="screen" hidden>
+    <details id="segmentsDetails" class="viewer-pane" open>
+      <summary>文字起こし</summary>
+      <div id="segments" class="viewer-scroll"></div>
+    </details>
+    <details id="analysesDetails" class="viewer-pane" open>
+      <summary>AI解析タイムライン</summary>
+      <div id="analyses" class="viewer-scroll"></div>
+    </details>
   </section>
 
-  <section id="viewerSection" hidden>
-    <div class="viewer-columns">
-      <div class="viewer-col">
-        <details id="segmentsDetails" open>
-          <summary>文字起こし</summary>
-          <div id="segments" class="segments viewer-scroll"></div>
-        </details>
+  <section id="routeSection" class="screen" hidden>
+    <div id="map"></div>
+    <div class="route-controls">
+      <div class="route-playback">
+        <button id="routePlay" type="button">▶ 再生</button>
+        <select id="routeSpeed">
+          <option value="1">1x</option>
+          <option value="10">10x</option>
+          <option value="60">60x</option>
+        </select>
+        <span id="routeTimeLabel" class="route-time-label">-</span>
       </div>
-      <div class="viewer-col">
-        <details id="analysesDetails" open>
-          <summary>AI解析タイムライン</summary>
-          <div id="analyses" class="viewer-scroll"></div>
-        </details>
+      <input id="routeSlider" type="range" min="0" max="0" value="0" step="1" />
+    </div>
+    <details id="routeHistoryDetails" class="viewer-pane" open>
+      <summary>区間時刻履歴</summary>
+      <div id="routeHistory" class="viewer-scroll route-history"></div>
+    </details>
+
+    <!-- ルート更新 (re)fetches the place names rendered in 通過地点 directly below, so it's
+         grouped with that pane rather than with 区間時刻履歴 above. -->
+    <div class="route-passages">
+      <div class="route-names-controls">
+        <button id="routeNamesRefresh" type="button">ルート更新</button>
+        <span id="routeNamesStatus" class="route-names-status"></span>
       </div>
+      <details id="routeNamesDetails" class="viewer-pane" open>
+        <summary>通過地点</summary>
+        <div id="routeNamesList" class="viewer-scroll route-names-list"></div>
+      </details>
     </div>
   </section>
 </main>
+
+<!-- Driver HUD: what the person actually driving/working glances at. Covers the whole viewport
+     with only the newest driver-mode result in huge type, sized to fit an iPhone SE screen
+     (375x667) in one screenful with no scrolling. Fixed grid-template-areas below keep every
+     element's position constant whether or not `watch` is present, so nothing shifts. -->
+<div id="driverHud" class="driver-hud" hidden>
+  <button id="hudExit" class="hud-exit" type="button" aria-label="通常表示に戻る">✕</button>
+  <div class="hud-body">
+    <p id="hudUrgency" class="hud-urgency">緊急度: 低</p>
+    <p id="hudHeadline" class="hud-headline">解析待ち</p>
+    <p id="hudAction" class="hud-action" hidden></p>
+    <p id="hudWatch" class="hud-watch" hidden></p>
+    <p id="hudMeta" class="hud-meta"></p>
+  </div>
+</div>
 
 <script src="/viewer.js"></script>
 </body>
