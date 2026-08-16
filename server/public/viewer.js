@@ -32,8 +32,8 @@ async function api(path, opts = {}) {
 }
 
 const requestedSession = new URLSearchParams(location.search).get("session");
-const noSessionSection = document.getElementById("noSessionSection");
 const viewerSection = document.getElementById("viewerSection");
+const pageTitleEl = document.getElementById("pageTitle");
 const segmentsEl = document.getElementById("segments");
 const segmentsLatestBtn = document.getElementById("segmentsLatest");
 const analysesEl = document.getElementById("analyses");
@@ -43,12 +43,16 @@ const statusSegCountEl = document.getElementById("statusSegCount");
 const statusAnalysisCountEl = document.getElementById("statusAnalysisCount");
 const statusLastUpdateEl = document.getElementById("statusLastUpdate");
 
+const textTestLink = document.getElementById("textTestLink");
+
 function setStatusSession() {
   if (followLatest) {
     statusSessionEl.textContent = sessionId ? `最新 ${sessionId.slice(0, 8)}` : "最新追従中";
   } else {
     statusSessionEl.textContent = `セッション ${sessionId.slice(0, 8)}`;
   }
+  // Carry the session across so テキストテスト opens the one being watched, not the list.
+  if (sessionId) textTestLink.href = `/index.html?session=${encodeURIComponent(sessionId)}`;
 }
 
 function setStatusConnection(ok) {
@@ -92,7 +96,6 @@ async function tick() {
   refreshAnalyses();
 }
 
-viewerSection.hidden = false;
 setStatusSession();
 tick();
 setInterval(tick, 2000);
@@ -157,11 +160,10 @@ async function refreshSegments() {
   segmentsEl.innerHTML = "";
   for (const seg of segments) {
     const div = document.createElement("div");
-    div.className = "segment-line";
+    div.className = `segment-line${seg.excluded ? " excluded" : ""}`;
     const time = new Date(seg.created_at).toLocaleTimeString("ja-JP");
     const excludedMark = seg.excluded ? "🗄 " : "";
     div.innerHTML = `<span class="segment-time">${time}</span>${excludedMark}${escapeHtml(seg.text)}`;
-    if (seg.excluded) div.style.opacity = "0.5";
     segmentsEl.appendChild(div);
   }
   if (segmentsAtBottom) scrollSegmentsToLatest();
@@ -508,6 +510,7 @@ const routeSection = document.getElementById("routeSection");
 const weatherSection = document.getElementById("weatherSection");
 
 function setActiveTab(tab) {
+  activeTab = tab; // remembered so leaving the pit layout restores the tab that was open
   const isRoute = tab === "route";
   const isWeather = tab === "weather";
   routeSection.hidden = !isRoute;
@@ -527,6 +530,33 @@ function setActiveTab(tab) {
 tabLive.addEventListener("click", () => setActiveTab("live"));
 tabRoute.addEventListener("click", () => setActiveTab("route"));
 tabWeather.addEventListener("click", () => setActiveTab("weather"));
+
+// ── Pit layout (>=1024px) ───────────────────────────────────────────────────
+// A wide screen shows all three screens at once instead of one tab at a time, because the
+// person on the pit wall wants the conversation, the car's position and the incoming rain
+// together. The route and weather screens only ever load their data from start*View(), so
+// entering this layout has to call both — widening them with CSS alone leaves empty panes.
+// Keep this breakpoint in sync with the one in viewer.css.
+const pitLayoutQuery = window.matchMedia("(min-width: 1024px)");
+let activeTab = "live";
+let pitLayout = null;
+
+function applyViewMode() {
+  const next = pitLayoutQuery.matches;
+  if (next === pitLayout) return;
+  pitLayout = next;
+  pageTitleEl.textContent = next ? "ピット" : "ビュワー";
+  if (!next) {
+    setActiveTab(activeTab);
+    return;
+  }
+  viewerSection.hidden = false;
+  routeSection.hidden = false;
+  weatherSection.hidden = false;
+  // Both are already guarded against a second setInterval, so re-entering is harmless.
+  startRouteView();
+  startWeatherView();
+}
 
 // ── Route / time view ───────────────────────────────────────────────────────
 const mapEl = document.getElementById("map");
@@ -588,6 +618,13 @@ if (typeof maplibregl !== "undefined" && mapEl) {
     console.error(err);
     map = null;
   }
+}
+
+// MapLibre does not watch its own container. In the pit layout the map is on screen the whole
+// time, so a window drag that never crosses the 1024px breakpoint would otherwise leave the
+// canvas at its previous size. The resize() in startRouteView covers the hidden→shown case.
+if (map && mapEl && typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(() => map.resize()).observe(mapEl);
 }
 
 let routeLoc = []; // all locations for the session, id-ascending
@@ -1149,6 +1186,12 @@ function renderRouteNames(route) {
 
 routeNamesRefreshBtn.addEventListener("click", refreshRouteNames);
 renderRouteNames([]);
+
+// Last, not next to the tab code above: applyViewMode() reaches startRouteView()/
+// startWeatherView(), which read consts declared further down this file. Calling it any earlier
+// hits their temporal dead zone. This is also what decides the initial screen.
+pitLayoutQuery.addEventListener("change", applyViewMode);
+applyViewMode();
 
 function escapeHtml(str) {
   const div = document.createElement("div");

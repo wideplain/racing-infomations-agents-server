@@ -42,8 +42,9 @@ h1 { margin: 0; font-size: 1rem; line-height: 1; letter-spacing: .04em; }
 .action { margin: 0; padding: 14px 16px; border-left: 0; background: rgba(255,93,61,.08); color: var(--text); font-size: clamp(1.55rem, 7.5vw, 2.8rem); font-weight: 750; line-height: 1.25; }
 .watch { margin: 0; color: var(--accent-soft); font-size: clamp(1.15rem, 5.3vw, 1.75rem); font-weight: 750; line-height: 1.3; }
 .weather { align-self: end; width: 100%; margin: 0; padding-top: 18px; border-top: 1px solid var(--line); }
-/* Three columns. The six tracks exist only so the five cells fill both rows exactly: the first
-   three span two tracks each, the last two span three, leaving no hole in the second row. */
+/* Two rows: rain and its probability across the top, then temperature / humidity / wind in three
+   columns below. The six tracks exist only so both rows fill the width exactly — the two upper
+   cells span three tracks each, the three lower ones span two. */
 .weather-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .weather-cell { grid-column: span 2; display: grid; min-width: 0; min-height: 64px; padding: 10px 6px; border-radius: 10px; background: rgba(11,16,25,.42); place-items: center; align-content: center; row-gap: 4px; }
 .weather-cell-wide { grid-column: span 3; }

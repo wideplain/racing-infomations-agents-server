@@ -1,0 +1,208 @@
+/* テキストテストモード layout. Palette, brand lockup, buttons, badges and .analysis-entry come
+   from style.css — this file only positions them.
+
+   Two screens toggled by the `hidden` attribute (style.css has the !important guard that beats
+   the `display` values set here): the session list, and one session's detail where text is
+   injected as if the phone had sent it. */
+
+body { padding-bottom: 24px; }
+
+/* ── Section headings ────────────────────────────────────────────────────── */
+.section-heading,
+.pane-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* Wrap instead of squeezing the title into two lines when the buttons don't fit. */
+.section-heading { flex-wrap: wrap; }
+.section-heading h2 { margin: 0; font-size: 1.15rem; white-space: nowrap; }
+.section-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.error-banner {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: var(--pane-radius);
+  background: rgba(255, 93, 93, .14);
+  color: var(--warn);
+  font-size: .85rem;
+  font-weight: 700;
+}
+
+/* ── List toolbar ────────────────────────────────────────────────────────── */
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+#sessionSearch { flex: 1 1 220px; min-width: 0; }
+.filter-chips { display: flex; gap: 6px; flex: 0 0 auto; }
+.chip {
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(23, 33, 50, .84);
+  color: var(--muted);
+  font-size: .82rem;
+}
+.chip.active { background: var(--accent-pitwall); border-color: transparent; color: #151a22; font-weight: 800; }
+
+/* ── Session list ────────────────────────────────────────────────────────────
+   One card per session carrying enough to choose without opening it: name, live/ended state,
+   when it started, and how much is in it. The whole card is the "open" target; the links inside
+   stop propagation so they don't also open the detail screen. */
+.session-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.session-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--pane-radius);
+  background: var(--panel);
+  cursor: pointer;
+}
+.session-card:hover { border-color: var(--line); }
+.session-card:focus-visible { outline: 2px solid var(--accent-driver); outline-offset: 1px; }
+/* The current live session is the one you almost always want; make it findable at a glance. */
+.session-card.is-live { box-shadow: inset 3px 0 0 var(--accent-driver); }
+
+.session-name {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+.session-name .badge { flex: 0 0 auto; }
+.session-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-stats {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.session-id {
+  grid-column: 1;
+  color: #6c7b91;
+  font-size: .68rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.session-links {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.empty-note { margin: 16px 0; color: var(--muted); font-size: .9rem; }
+
+/* ── Detail screen ───────────────────────────────────────────────────────── */
+.detail-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.detail-title { flex: 1 1 200px; min-width: 0; }
+.detail-title h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: .74rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.detail-meta > span:first-child { flex: 0 0 auto; white-space: nowrap; }
+.detail-id {
+  min-width: 0;
+  overflow: hidden;
+  color: #6c7b91;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+/* Transcript on the left, analysis on the right — the same split as the ビュワー live screen,
+   so switching between the two pages doesn't rearrange where things are. */
+.detail-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
+.pane { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 14px; }
+.pane-heading h3 { margin: 0; font-size: 1rem; }
+.pane-note { color: var(--muted); font-size: .74rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.segments,
+.analyses {
+  min-height: 120px;
+  max-height: 48vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.segments {
+  padding: 8px 10px;
+  border-radius: var(--pane-radius);
+  background: var(--panel-inset);
+}
+.segment-form { display: flex; gap: 8px; align-items: stretch; }
+.segment-form textarea { flex: 1 1 auto; min-width: 0; }
+.segment-form button { flex: 0 0 auto; }
+
+.analyze-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.field { display: grid; gap: 3px; color: var(--muted); font-size: .72rem; font-weight: 700; }
+.field select { min-width: 8.5rem; }
+.field.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  white-space: nowrap;
+}
+.field.checkbox input { width: 16px; height: 16px; padding: 0; accent-color: var(--accent-driver); }
+#analyzeInstruction { flex: 1 1 180px; min-width: 0; }
+
+@media (max-width: 760px) {
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .segments, .analyses { max-height: 44vh; }
+  .segment-form { flex-direction: column; }
+  .session-card { grid-template-columns: minmax(0, 1fr); }
+  .session-links { grid-column: 1; grid-row: auto; margin-top: 6px; }
+  /* Side by side these controls are wider than a phone viewport and push the page into
+     horizontal scrolling; stacked, each one gets the full width. Resetting `flex` matters:
+     the row-direction basis (`1 1 180px` on the instruction field) would otherwise become a
+     180px-tall input once the main axis is vertical. */
+  .analyze-controls { flex-direction: column; align-items: stretch; }
+  .analyze-controls > * { width: 100%; }
+  /* Selected by id so it outranks the row-direction `flex: 1 1 180px` below. */
+  #analyzeInstruction { flex: 0 0 auto; }
+  .field.checkbox { align-self: start; width: auto; }
+}

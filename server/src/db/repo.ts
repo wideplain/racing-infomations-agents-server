@@ -10,6 +10,13 @@ export interface Session {
   ended_at: string | null;
 }
 
+/** A session plus the aggregates the session list renders. */
+export interface SessionSummary extends Session {
+  segment_count: number;
+  analysis_count: number;
+  last_segment_at: string | null;
+}
+
 export interface Segment {
   id: number;
   session_id: string;
@@ -93,10 +100,19 @@ export function getSession(db: DB, id: string): Session | undefined {
     | undefined;
 }
 
-export function listSessions(db: DB): Session[] {
+/** The list view needs enough per-session context to pick one without opening it, so the counts
+ * are aggregated here instead of making the client fetch every session's detail (N+1). */
+export function listSessions(db: DB): SessionSummary[] {
   return db
-    .prepare(`SELECT * FROM sessions ORDER BY started_at DESC`)
-    .all() as Session[];
+    .prepare(
+      `SELECT s.*,
+              (SELECT COUNT(*) FROM segments WHERE session_id = s.id) AS segment_count,
+              (SELECT COUNT(*) FROM analyses WHERE session_id = s.id) AS analysis_count,
+              (SELECT MAX(created_at) FROM segments WHERE session_id = s.id) AS last_segment_at
+       FROM sessions s
+       ORDER BY s.started_at DESC`
+    )
+    .all() as SessionSummary[];
 }
 
 export function insertSegments(

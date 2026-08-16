@@ -20,10 +20,10 @@
 </head>
 <body>
 <header>
-  <div class="viewer-brand">
-    <span class="viewer-brand-mark" aria-hidden="true">RR</span>
+  <div class="brand-lockup">
+    <span class="brand-mark" aria-hidden="true">RR</span>
     <div>
-      <p class="viewer-eyebrow">AI RACE RADIO / LIVE</p>
+      <p class="eyebrow">AI RACE RADIO / LIVE</p>
       <h1 id="pageTitle">ビュワー</h1>
     </div>
   </div>
@@ -34,6 +34,9 @@
       <button id="tabWeather" type="button" class="view-tab" role="tab" aria-selected="false">天気</button>
     </nav>
     <button id="hudToggle" type="button" aria-controls="driverHud" aria-expanded="false">🏎 ドライバー表示</button>
+    <nav class="mode-nav">
+      <a id="textTestLink" class="mode-link" href="/index.html">🧪 テキストテスト</a>
+    </nav>
   </div>
 </header>
 
@@ -59,6 +62,9 @@
   </section>
 
   <section id="routeSection" class="screen" hidden>
+    <!-- The other two columns of the pit layout are labelled by their own <summary> / heading;
+         the map has none. Hidden by default so it costs nothing below 1024px. -->
+    <p class="route-screen-heading" hidden>ルート・時間</p>
     <div id="map"></div>
     <div class="route-controls">
       <div class="route-playback">

@@ -4,32 +4,19 @@
    without having to scroll through the whole page first.
 
    File layout: variables, base/hidden guard, header, .screen base, live screen, route screen,
-   shared pane/analysis-entry styles, driver HUD. Each screen (#viewerSection / #routeSection /
-   #driverHud) is switched by [hidden] and must stay visually and structurally independent of
-   the others — screen-specific rules live only in that screen's section below. */
+   shared pane/analysis-entry styles, pit layout, driver HUD. Each screen (#viewerSection /
+   #routeSection / #driverHud) is switched by [hidden] and must stay visually and structurally
+   independent of the others — screen-specific rules live only in that screen's section below.
 
-/* ── Variables ───────────────────────────────────────────────────────────── */
-:root {
-  --surface: #172132;
-  --surface-strong: #121a27;
-  --text: #eff4fa;
-  --muted: #96a5b9;
-  --line: #2b374b;
-  --warn: #ff5d5d;
-  --pane-radius: 12px;
-  --pane-padding: 10px 14px;
-  --accent-pitwall: #ff5d3d;
-  --accent-driver: #4bd99a;
-  --tl-urgency-medium: #ffba58;
-  --tl-urgency-high: #ff5d5d;
-}
+   The one deliberate exception is the pit layout (≥1024px), which arranges all three screens at
+   once and therefore has to reach across them. It sits near the end of the file on purpose: a
+   media query adds no specificity, so it only wins against the per-screen rules it overrides by
+   coming after them. Do not move it earlier. */
 
-/* ── Base / hidden guard ─────────────────────────────────────────────────── */
-/* Screens (#viewerSection / #routeSection) set `display: grid|flex`, which overrides the
-   `hidden` attribute's UA `display: none` — without this guard both screens render at once and
-   overlap each other. Every screen must stay fully independent, so hidden means hidden. */
-[hidden] { display: none !important; }
+/* Palette, brand lockup, buttons, form controls, badges and the `[hidden]` guard all come from
+   style.css, which viewer.html loads first. This file is viewer layout only. */
 
+/* ── Base ────────────────────────────────────────────────────────────────── */
 html, body {
   height: 100%;
   margin: 0;
@@ -38,8 +25,6 @@ body {
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
-  background: radial-gradient(circle at 82% 0%, #1b2a43 0, #0b1019 38rem);
-  color: var(--text);
 }
 main {
   flex: 1 1 auto;
@@ -54,25 +39,6 @@ header {
   flex-wrap: wrap;
   min-width: 0;
   align-items: center;
-}
-.viewer-brand { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
-.viewer-brand-mark { display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; background: var(--accent-pitwall); color: #151a22; font-weight: 900; letter-spacing: -.08em; }
-.viewer-eyebrow { margin: 0 0 2px; color: var(--muted); font-size: .62rem; font-weight: 800; letter-spacing: .13em; }
-#pageTitle {
-  min-width: 0;
-  margin: 0;
-  color: var(--text);
-  font-size: 1.1rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  min-width: 0;
 }
 .view-tabs {
   display: flex;
@@ -110,23 +76,7 @@ header {
   color: var(--muted);
   font-size: .8rem;
 }
-.apikey-details { min-width: 0; }
-.apikey-details summary {
-  cursor: pointer;
-  white-space: nowrap;
-  color: var(--muted);
-}
-.apikey-details .apikey-row { margin-top: 6px; }
-.apikey-details input { background: var(--surface-strong); border: 0; color: var(--text); max-width: min(100%, 330px); }
-
 @media (max-width: 700px) {
-  header {
-    gap: 6px;
-    padding: 8px 0;
-  }
-  #pageTitle {
-    font-size: 1rem;
-  }
   .header-actions {
     gap: 6px;
   }
@@ -253,10 +203,10 @@ header {
 .weather-screen-heading h2 { margin: 0; font-size: 1.15rem; }
 .weather-screen-heading > span { color: var(--muted); font-size: .72rem; white-space: nowrap; }
 .weather-timeline { display: grid; flex: 1 1 0; min-height: 0; align-content: start; gap: 8px; overflow-y: auto; }
-.weather-timeline-entry { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; padding: 10px; border-radius: var(--pane-radius); background: linear-gradient(145deg, rgba(23, 33, 50, .98), rgba(18, 26, 39, .98)); }
+.weather-timeline-entry { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; padding: 10px; border-radius: var(--pane-radius); background: var(--panel); }
 .weather-timeline-time { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; font-weight: 750; }
 .weather-timeline-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.weather-timeline-value { min-width: 0; padding: 7px; border-radius: 7px; background: rgba(11, 16, 25, .42); color: var(--text); font-size: clamp(.9rem, 3.8vw, 1.15rem); font-weight: 800; text-align: center; white-space: nowrap; }
+.weather-timeline-value { min-width: 0; padding: 7px; border-radius: 7px; background: var(--panel-inset); color: var(--text); font-size: clamp(.9rem, 3.8vw, 1.15rem); font-weight: 800; text-align: center; white-space: nowrap; }
 .weather-timeline-value.rain { color: var(--accent-pitwall); }
 .weather-timeline-value.pop { font-variant-numeric: tabular-nums; }
 .weather-timeline-value.pop.medium { color: var(--tl-urgency-medium); }
@@ -312,7 +262,7 @@ header {
 .route-weather-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: .82rem; font-weight: 800; }
 .route-weather-heading small, .route-weather-location { color: var(--muted); font-size: .7rem; font-weight: 600; }
 .route-weather-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
-.route-weather-item { min-width: 0; padding: 8px; border-radius: 8px; background: rgba(11, 16, 25, .42); }
+.route-weather-item { min-width: 0; padding: 8px; border-radius: 8px; background: var(--panel-inset); }
 .route-weather-item span { display: block; overflow: hidden; color: var(--muted); font-size: .62rem; font-weight: 700; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .route-weather-item strong { display: block; margin: 3px 0 6px; overflow: hidden; color: var(--text); font-size: clamp(1rem, 4.2vw, 1.4rem); line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .route-weather-item small { display: block; color: var(--accent-driver); font-size: .68rem; font-weight: 750; line-height: 1.3; }
@@ -426,6 +376,20 @@ header {
      min-height:0 lets it *shrink*, but only overflow actually clips what spills out. */
   overflow: hidden;
 }
+/* Chrome 128+ / Safari 18+ wrap a <details>'s non-summary children in a ::details-content
+   pseudo-element. That pseudo — not .viewer-scroll — became the real flex child of the pane, so
+   the scroller's `flex: 1 1 0` was growing against the pseudo's own zero-height content box and
+   both desktop panes collapsed to 0px. Making the pseudo a full-height flex column reconnects
+   the chain; browsers without the pseudo simply ignore these rules. */
+.viewer-pane::details-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  block-size: auto;
+}
+.viewer-pane:not([open])::details-content { flex: 0 0 auto; }
+
 .viewer-pane summary {
   font-size: 1.1rem;
   font-weight: bold;
@@ -481,35 +445,13 @@ header {
 #segments,
 #routeHistory,
 #routeNamesList {
-  background: linear-gradient(145deg, rgba(23, 33, 50, .98), rgba(18, 26, 39, .98));
+  background: var(--panel);
   border-radius: var(--pane-radius);
   padding: 8px 12px;
 }
 
-.analysis-entry {
-  background: linear-gradient(145deg, rgba(23, 33, 50, .98), rgba(18, 26, 39, .98));
-  border-radius: var(--pane-radius);
-  padding: var(--pane-padding);
-  margin-bottom: 10px;
-}
-.analysis-entry .entry-time {
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: bold;
-}
-.analysis-entry .entry-mode {
-  display: inline-block;
-  font-size: 0.7rem;
-  color: white;
-  background: var(--muted);
-  border-radius: 6px;
-  padding: 1px 6px;
-  margin-left: 6px;
-}
-.analysis-entry .entry-mode.pitwall { background: var(--accent-pitwall); color: #151a22; }
-.analysis-entry h4 { margin: 8px 0 2px; font-size: 0.9rem; }
-.analysis-entry .warn { color: var(--warn); }
-.analysis-entry .status-queued, .analysis-entry .status-running { color: var(--muted); }
+/* .analysis-entry lives in style.css — the テキストテスト page renders the same markup from the
+   same result payload, and the two must not drift apart. */
 
 /* Map controls belong to a third-party stylesheet; recolor their small chrome so the map is
    still readable without switching the surrounding route screen back to a light UI. */
@@ -517,32 +459,64 @@ header {
 .maplibregl-ctrl-group button + button { border-top-color: var(--line); }
 .maplibregl-ctrl-group button span { filter: invert(1); }
 
-/* Driver mode: terse by design, so it's rendered noticeably larger than the other modes. This
-   is the in-timeline rendering on the normal light page — it intentionally does NOT use the
-   dark driver-HUD palette below, just the same shared variables as everything else here. */
-.analysis-entry .entry-mode.driver { background: var(--accent-driver); color: #102018; }
-.analysis-entry .driver-headline {
-  font-size: 1.4rem;
-  font-weight: bold;
-  margin: 6px 0;
-  line-height: 1.3;
+/* ── Pit layout (≥1024px) ───────────────────────────────────────────────────
+   Wide screens drop the tabs and show all three screens side by side, because the person on the
+   pit wall wants the conversation, the car's position and the incoming rain in one glance rather
+   than one tab at a time.
+
+   The three sections stay whole as grid items instead of being flattened with display:contents:
+   that keeps each screen's own layout and its <details> nesting untouched, so nothing below
+   1024px has to change. viewer.js still owns the `hidden` attribute on them — no rule here
+   overrides it, and the breakpoint value has to match pitLayoutQuery in viewer.js. */
+@media (min-width: 1024px) {
+  .view-tabs { display: none; }
+
+  main {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(300px, 1.2fr) minmax(340px, 1.4fr) minmax(210px, .62fr);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "live route weather";
+  }
+  #viewerSection { grid-area: live; }
+  #routeSection { grid-area: route; }
+  #weatherSection { grid-area: weather; }
+  #routeSection, #weatherSection { height: 100%; min-height: 0; overflow: hidden; }
+
+  /* The live screen is one column of three here, so its two panes stack rather than splitting
+     that column in half again — a quarter-width transcript is too narrow to read. The analysis
+     timeline gets the larger share: its entries are what the pit acts on, and each is several
+     lines tall, where the transcript is one line per utterance. */
+  #viewerSection {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, .8fr) minmax(0, 1.5fr);
+    grid-template-areas: "segments" "analyses";
+  }
+  #viewerSection.collapsed-segments { grid-template-rows: auto minmax(0, 1fr); }
+  #viewerSection.collapsed-analyses { grid-template-rows: minmax(0, 1fr) auto; }
+
+  /* The 26vh caps in the route section assume that screen owns the whole viewport; here it owns
+     one column, so hand the height out by grow ratio and let each pane scroll inside it. The
+     column's fixed parts (heading, playback row, current-weather strip) already eat about a
+     third of it, so the ratios below are what is left to share, not the whole column. */
+  #routeSection { gap: 8px; }
+  #routeSection #map { flex: 2.6 1 0; min-height: 190px; }
+  #routeHistoryDetails { flex: 1.2 1 0; min-height: 0; max-height: none; }
+  #routeNamesDetails { flex: 1 1 0; min-height: 0; max-height: none; }
+  /* A larger share than the pane it wraps, because it also carries the ルート更新 row. */
+  .route-passages { flex: 1.6 1 0; min-height: 0; }
+
+  /* viewer.js never touches this element's `hidden`, so overriding the guard from style.css is
+     safe here and keeps the heading free below 1024px. */
+  .route-screen-heading[hidden] {
+    display: block !important;
+    margin: 0;
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
 }
-.analysis-entry .driver-action {
-  font-size: 1.1rem;
-  margin: 4px 0;
-}
-.analysis-entry .driver-watch {
-  font-size: 1rem;
-  color: var(--warn);
-  margin: 4px 0;
-}
-.analysis-entry .driver-urgency {
-  font-size: 0.85rem;
-  color: var(--muted);
-  margin: 6px 0 0;
-}
-.analysis-entry .driver-urgency.urgency-medium { color: var(--tl-urgency-medium); }
-.analysis-entry .driver-urgency.urgency-high { color: var(--tl-urgency-high); font-weight: bold; }
 
 /* ── Driver HUD ──────────────────────────────────────────────────────────────
    Full-viewport, no-scroll display for the person driving/working, who can only glance for a
