@@ -33,14 +33,15 @@
       <p id="driverAction" class="action" hidden></p>
       <p id="driverWatch" class="watch" hidden></p>
       <section id="driverWeather" class="weather" aria-label="現在地点の天気" hidden>
-        <!-- Five glanceable cells. Each carries its own pictogram because at speed the numbers
-             alone (20% / 26° / 71% / 3.2) are not tellable apart. -->
+        <!-- Rain on the upper row, the ambient readings on the lower one. Each cell carries its
+             own pictogram because at speed the bare numbers (20% / 26° / 71% / 3.2) are not
+             tellable apart. -->
         <div class="weather-grid">
-          <div class="weather-cell weather-rain">
+          <div class="weather-cell weather-cell-wide weather-rain">
             <span class="weather-label">いま</span>
             <strong id="driverWeatherRain">—</strong>
           </div>
-          <div class="weather-cell weather-pop">
+          <div class="weather-cell weather-cell-wide weather-pop">
             <span class="weather-label">🌧 確率</span>
             <strong id="driverWeatherPop">—</strong>
           </div>
@@ -48,11 +49,11 @@
             <span class="weather-label">🌡 気温</span>
             <strong id="driverWeatherTemp">—</strong>
           </div>
-          <div class="weather-cell weather-cell-wide">
+          <div class="weather-cell">
             <span class="weather-label">💧 湿度</span>
             <strong id="driverWeatherHumidity">—</strong>
           </div>
-          <div class="weather-cell weather-cell-wide">
+          <div class="weather-cell">
             <span class="weather-label">🌬 風 m/s</span>
             <strong id="driverWeatherWind">—</strong>
           </div>

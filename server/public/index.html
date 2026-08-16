@@ -3,53 +3,119 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>会話ログ解析</title>
+<title>テキストテスト - AI RACE RADIO</title>
 <link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/index.css" />
 </head>
 <body>
 <header>
-  <h1>会話ログ解析</h1>
-  <details class="apikey-details">
-    <summary>API Key</summary>
-    <div class="apikey-row">
-      <label>API Key
-        <input id="apiKey" type="password" placeholder="X-Api-Key" />
-      </label>
+  <div class="brand-lockup">
+    <span class="brand-mark" aria-hidden="true">RR</span>
+    <div>
+      <p class="eyebrow">AI RACE RADIO / TEXT TEST</p>
+      <h1>テキストテスト</h1>
     </div>
-  </details>
+  </div>
+  <div class="header-actions">
+    <nav class="mode-nav">
+      <a class="mode-link current" href="/index.html">🧪 テキストテスト</a>
+      <a class="mode-link" href="/viewer.html?session=latest">👁 ビュワー</a>
+      <a class="mode-link" href="/driver.html">🏎 ドライバー</a>
+    </nav>
+    <details class="apikey-details">
+      <summary>API Key</summary>
+      <div class="apikey-row">
+        <label>API Key
+          <input id="apiKey" type="password" placeholder="X-Api-Key（不要な場合は空欄）" />
+        </label>
+      </div>
+    </details>
+  </div>
 </header>
 
+<p id="errorBanner" class="error-banner" role="alert" hidden></p>
+
 <main>
-  <section id="sessionListSection">
-    <h2>セッション</h2>
-    <button id="newSessionBtn">新規セッション作成</button>
-    <ul id="sessionList"></ul>
+  <!-- Screen 1: pick a session. -->
+  <section id="sessionListSection" class="screen">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">SESSIONS</p>
+        <h2>セッション一覧</h2>
+      </div>
+      <div class="section-actions">
+        <button id="refreshBtn" type="button" class="ghost" title="一覧を再取得">↻ 更新</button>
+        <button id="newSessionBtn" type="button" class="primary">＋ 新規セッション</button>
+      </div>
+    </div>
+
+    <div class="list-toolbar">
+      <input id="sessionSearch" type="search" placeholder="セッション名 / ID で絞り込み" />
+      <div class="filter-chips" role="group" aria-label="表示するセッション">
+        <button type="button" class="chip active" data-filter="all">すべて</button>
+        <button type="button" class="chip" data-filter="live">進行中</button>
+        <button type="button" class="chip" data-filter="ended">終了</button>
+      </div>
+    </div>
+
+    <ul id="sessionList" class="session-list"></ul>
+    <p id="sessionListEmpty" class="empty-note" hidden></p>
   </section>
 
-  <section id="sessionDetailSection" hidden>
-    <button id="backBtn">← 一覧へ戻る</button>
-    <a id="openViewerLink" href="#" target="_blank" rel="noopener">👁 ビュワーで開く</a>
-    <h2 id="sessionTitle"></h2>
+  <!-- Screen 2: drive one session — inject text as if the phone sent it, then analyze. -->
+  <section id="sessionDetailSection" class="screen detail-screen" hidden>
+    <div class="detail-heading">
+      <button id="backBtn" type="button" class="ghost">← 一覧</button>
+      <div class="detail-title">
+        <h2 id="sessionTitle">-</h2>
+        <p class="detail-meta">
+          <span id="sessionMeta">-</span>
+          <span id="sessionIdLabel" class="detail-id" title="">-</span>
+        </p>
+      </div>
+      <div class="detail-actions">
+        <a id="openViewerLink" class="mode-link" href="#" target="_blank" rel="noopener">👁 ビュワー</a>
+        <a id="openDriverLink" class="mode-link" href="#" target="_blank" rel="noopener">🏎 ドライバー</a>
+        <button id="endSessionBtn" type="button" class="ghost">■ 終了</button>
+      </div>
+    </div>
 
-    <div id="segments" class="segments"></div>
+    <div class="detail-grid">
+      <section class="pane card">
+        <div class="pane-heading">
+          <h3>文字起こし</h3>
+          <span id="segmentCount" class="pane-note">0 行</span>
+        </div>
+        <div id="segments" class="segments"></div>
+        <form id="segmentForm" class="segment-form">
+          <textarea id="segmentText" rows="2"
+            placeholder="テキストを入力して送信（Android アプリの代わりに投入）&#10;⌘/Ctrl + Enter で送信・改行は1行=1発話として分割"></textarea>
+          <button type="submit" class="primary">送信</button>
+        </form>
+      </section>
 
-    <form id="segmentForm">
-      <textarea id="segmentText" placeholder="テキストを入力して送信（Android アプリ代わりのテスト投入）" rows="2"></textarea>
-      <button type="submit">送信</button>
-    </form>
-
-    <button id="analyzeBtn">AI解析</button>
-    <div id="analyzeStatus"></div>
-
-    <div id="analysisResult" class="analysis-result" hidden>
-      <h3>要約</h3>
-      <p id="resSummary"></p>
-      <h3>解釈</h3>
-      <p id="resInterpretation"></p>
-      <h3>アドバイス</h3>
-      <ul id="resAdvice"></ul>
-      <h3>返答案</h3>
-      <p id="resResponse"></p>
+      <section class="pane card">
+        <div class="pane-heading">
+          <h3>AI解析</h3>
+          <span id="analyzeStatus" class="pane-note">-</span>
+        </div>
+        <div class="analyze-controls">
+          <label class="field">モード
+            <select id="analyzeMode">
+              <option value="default">通常</option>
+              <option value="pitwall">ピットウォール</option>
+              <option value="driver">ドライバー</option>
+            </select>
+          </label>
+          <label class="field checkbox">
+            <input id="alsoDriver" type="checkbox" />
+            ドライバー要約も同時生成
+          </label>
+          <input id="analyzeInstruction" type="text" placeholder="追加指示（任意）" />
+          <button id="analyzeBtn" type="button" class="primary">解析を実行</button>
+        </div>
+        <div id="analyses" class="analyses"></div>
+      </section>
     </div>
   </section>
 </main>

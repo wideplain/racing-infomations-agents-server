@@ -1,11 +1,50 @@
+/* Shared design system for the browser pages (index.html = テキストテスト, viewer.html = ビュワー).
+   Every page loads this first, then its own stylesheet (index.css / viewer.css) for layout.
+
+   driver.html deliberately loads driver.css ALONE — it is the one page that must render even if
+   nothing else does, so it carries its own copy of the palette under local names. Keep the two
+   palettes in sync by value; the names differ on purpose so neither file can silently depend on
+   the other. */
+
+/* ── Tokens ──────────────────────────────────────────────────────────────────
+   Owned here, used by index.css and viewer.css. Don't redeclare them downstream. */
+:root {
+  --bg: #0b1019;
+  --surface: #172132;
+  --surface-strong: #121a27;
+  /* The card treatment every panel across the app shares. */
+  --panel: linear-gradient(145deg, rgba(23, 33, 50, .98), rgba(18, 26, 39, .98));
+  --panel-inset: rgba(11, 16, 25, .42);
+  --text: #eff4fa;
+  --muted: #96a5b9;
+  --line: #2b374b;
+  --warn: #ff5d5d;
+  --accent-pitwall: #ff5d3d;
+  --accent-driver: #4bd99a;
+  --tl-urgency-medium: #ffba58;
+  --tl-urgency-high: #ff5d5d;
+  --pane-radius: 12px;
+  --pane-padding: 10px 14px;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+/* Pages set `display: grid|flex` on sections they toggle with the `hidden` attribute, which
+   otherwise loses to those declarations and leaves two screens stacked on top of each other. */
+[hidden] { display: none !important; }
+
 * { box-sizing: border-box; }
+
 body {
-  font-family: -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
   margin: 0;
   padding: 0 12px 40px;
-  background: #f5f5f7;
-  color: #1c1c1e;
+  background: var(--bg);
+  background-image: radial-gradient(circle at 82% 0%, #1b2a43 0, var(--bg) 38rem);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
 }
+
 header {
   padding: 12px 0;
   display: flex;
@@ -14,72 +53,217 @@ header {
   justify-content: space-between;
   gap: 8px;
 }
-h1 { font-size: 1.2rem; margin: 0; }
+h1 { font-size: 1.1rem; margin: 0; }
+
+/* ── Brand lockup ────────────────────────────────────────────────────────────
+   The RR mark + eyebrow + page name that identifies which mode you're looking at. Same markup
+   on every page; only the eyebrow and h1 text change. */
+.brand-lockup { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--accent-pitwall);
+  color: #151a22;
+  font-weight: 900;
+  letter-spacing: -.08em;
+}
+.eyebrow {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .13em;
+}
+.brand-lockup h1 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Header actions ──────────────────────────────────────────────────────────
+   The right-hand cluster of every page header (tabs, mode links, API key disclosure). */
+.header-actions {
+  display: flex;
+  align-items: center;
+  /* Wrap rather than overflow: on a phone the pills are wider than the viewport, and without
+     this the whole page gains a horizontal scrollbar. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* Pill links to the sibling modes, so every page can be reached from every other one. */
+.mode-nav { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.mode-link {
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 6px 11px;
+  background: rgba(23, 33, 50, .84);
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: none;
+  /* Labels are short by design; wrapping turns the header into two rows and eats the content
+     area on a phone. */
+  white-space: nowrap;
+}
+.mode-link:hover { color: var(--text); }
+.mode-link.current { background: var(--accent-pitwall); border-color: transparent; color: #151a22; }
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+input, textarea, select, button {
+  font: inherit;
+  font-size: 1rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  color: var(--text);
+}
+textarea { resize: vertical; }
+input::placeholder, textarea::placeholder { color: #6c7b91; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent-driver);
+  outline-offset: 1px;
+}
+
+button {
+  border: 1px solid var(--line);
+  font-weight: 700;
+  cursor: pointer;
+}
+button:active { opacity: .8; }
+button:disabled { opacity: .45; cursor: default; }
+/* Primary = the one action a screen exists for. Ghost = everything else. */
+button.primary { background: var(--accent-pitwall); border-color: transparent; color: #151a22; font-weight: 800; }
+button.ghost { background: rgba(23, 33, 50, .84); color: var(--muted); }
+button.ghost:hover:not(:disabled) { color: var(--text); }
+
+a { color: var(--accent-driver); }
+
+/* ── Cards / badges ──────────────────────────────────────────────────────── */
+.card {
+  background: var(--panel);
+  border-radius: var(--pane-radius);
+  padding: var(--pane-padding);
+}
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: #151a22;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.badge.live { background: var(--accent-driver); }
+.badge.ended { background: rgba(150, 165, 185, .22); color: var(--muted); }
+.badge.pitwall { background: var(--accent-pitwall); }
+.badge.driver { background: var(--accent-driver); }
+
+/* ── Transcript line ─────────────────────────────────────────────────────────
+   One recognized utterance. Rendered by both the ビュワー and the テキストテスト page from the
+   same segment rows, so like .analysis-entry the styling is shared. */
+.segment-line {
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(150, 165, 185, .16);
+  font-size: .92rem;
+  line-height: 1.45;
+}
+.segment-line:last-child { border-bottom: 0; }
+/* Excluded lines stay visible — you need to see what the AI is skipping — but read as demoted. */
+.segment-line.excluded { opacity: .5; text-decoration: line-through; }
+.segment-time {
+  margin-right: 8px;
+  color: var(--muted);
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Analysis entry ──────────────────────────────────────────────────────────
+   One completed (or in-flight) analysis, rendered identically on the ビュワー timeline and on
+   the テキストテスト page from the same /api/analyses payload. Both pages build this markup, so
+   the styling has to be shared or the two views drift apart. */
+.analysis-entry {
+  background: var(--panel);
+  border-radius: var(--pane-radius);
+  padding: var(--pane-padding);
+  margin-bottom: 10px;
+}
+.analysis-entry .entry-time {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+.analysis-entry .entry-mode {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: white;
+  background: var(--muted);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+.analysis-entry .entry-mode.pitwall { background: var(--accent-pitwall); color: #151a22; }
+.analysis-entry .entry-mode.driver { background: var(--accent-driver); color: #102018; }
+.analysis-entry h4 { margin: 8px 0 2px; font-size: 0.9rem; }
+.analysis-entry p { margin: 2px 0; }
+.analysis-entry ul { margin: 2px 0; padding-left: 1.2em; }
+.analysis-entry .warn { color: var(--warn); }
+.analysis-entry .status-queued, .analysis-entry .status-running { color: var(--muted); }
+
+/* Driver mode is terse by design (it's a huge-type HUD on the phone), so in a timeline it's
+   rendered noticeably larger than the other modes rather than as a dense block. */
+.analysis-entry .driver-headline {
+  font-size: 1.4rem;
+  font-weight: bold;
+  margin: 6px 0;
+  line-height: 1.3;
+}
+.analysis-entry .driver-action {
+  font-size: 1.1rem;
+  margin: 4px 0;
+}
+.analysis-entry .driver-watch {
+  font-size: 1rem;
+  color: var(--warn);
+  margin: 4px 0;
+}
+.analysis-entry .driver-urgency {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+.analysis-entry .driver-urgency.urgency-medium { color: var(--tl-urgency-medium); }
+.analysis-entry .driver-urgency.urgency-high { color: var(--tl-urgency-high); font-weight: bold; }
+
+/* ── API key disclosure ──────────────────────────────────────────────────── */
+.apikey-details { min-width: 0; }
 .apikey-details summary {
   cursor: pointer;
-  font-size: 0.9rem;
-  color: #636366;
+  font-size: .82rem;
+  color: var(--muted);
   list-style: none;
   user-select: none;
+  white-space: nowrap;
 }
 .apikey-details summary::-webkit-details-marker { display: none; }
 .apikey-details summary::before { content: "🔒 "; }
 .apikey-details .apikey-row { margin-top: 6px; }
-input, textarea, button {
-  font-size: 1rem;
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid #c7c7cc;
-}
-button {
-  background: #007aff;
-  color: white;
-  border: none;
-  cursor: pointer;
-}
-button:active { opacity: 0.8; }
-ul { list-style: none; padding: 0; }
-#sessionList li {
-  background: white;
-  padding: 12px;
-  margin-bottom: 8px;
-  border-radius: 10px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.viewer-link, #openViewerLink {
-  color: #007aff;
-  text-decoration: none;
-  font-size: 0.9rem;
-  white-space: nowrap;
-}
-#openViewerLink { display: inline-block; margin: 4px 0 8px; }
-.segments {
-  max-height: 40vh;
-  overflow-y: auto;
-  background: white;
-  border-radius: 10px;
-  padding: 8px 12px;
-  margin: 12px 0;
-}
-.segment-line { padding: 4px 0; border-bottom: 1px solid #eee; }
-.segment-time { color: #8e8e93; font-size: 0.8rem; margin-right: 6px; }
-#segmentForm {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-#segmentForm textarea { flex: 1; resize: vertical; }
-.analysis-result {
-  background: white;
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin-top: 12px;
-}
-#analyzeStatus { margin: 8px 0; color: #8e8e93; }
-@media (max-width: 480px) {
-  #segmentForm { flex-direction: column; }
+.apikey-details input { background: var(--surface-strong); border: 0; max-width: min(100%, 330px); }
+
+@media (max-width: 700px) {
+  header { gap: 6px; padding: 8px 0; }
+  .brand-mark { width: 32px; height: 32px; font-size: .86rem; }
+  .brand-lockup h1 { font-size: 1rem; }
+  .mode-link { padding: 5px 9px; font-size: .76rem; }
 }
