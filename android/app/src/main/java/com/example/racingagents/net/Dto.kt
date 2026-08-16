@@ -75,6 +75,12 @@ data class AnalysisResultDto(
     val action: String? = null,
     val watch: String? = null,
     val urgency: String? = null,
+    /** Optional JMA-based precipitation heads-up attached by the server to driver results. */
+    val rainEtaMinutes: Int? = null,
+    val rainProbability: Int? = null,
+    /** Optional JMA weather forecast, including clear conditions when rain is not expected. */
+    val forecastEtaMinutes: Int? = null,
+    val forecastWeather: String? = null,
 ) {
     /** Renders [confidence] for display regardless of whether it came in as a number
      * (default mode, e.g. 0.78 -> "78%") or a low/medium/high string (pitwall mode -> 低/中/高). */

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { JmaWeatherProvider } from "../src/weather/jmaProvider.js";
 
 const AREA_JSON = {
@@ -74,6 +74,8 @@ function makeFetch(opts: {
 }
 
 describe("JmaWeatherProvider", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("resolves a weather summary in the normal case", async () => {
     const { fn } = makeFetch({ gsiMuniCd: "431001" });
     const provider = new JmaWeatherProvider({ fetchFn: fn, timeoutMs: 1000 });
@@ -96,6 +98,75 @@ describe("JmaWeatherProvider", () => {
     const result = await provider.getWeather(32.8, 130.7);
     expect(result).not.toBeNull();
     expect(result?.summaryText).toBe("熊本地方: くもり時々雨 / 降水確率: 60%");
+  });
+
+  it("returns the next meaningful rain probability with its ETA", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T00:00:00Z"));
+    const forecastJson = [
+      {
+        timeSeries: [
+          {
+            areas: [
+              {
+                area: { code: "430010", name: "熊本地方" },
+                weathers: ["くもり"],
+              },
+            ],
+          },
+          {
+            timeDefines: ["2026-08-17T00:10:00Z", "2026-08-17T00:30:00Z"],
+            areas: [
+              {
+                area: { code: "430010", name: "熊本地方" },
+                pops: ["20", "70"],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const { fn } = makeFetch({ forecastJson });
+    const provider = new JmaWeatherProvider({ fetchFn: fn, timeoutMs: 1000 });
+
+    await expect(provider.getWeather(32.8, 130.7)).resolves.toMatchObject({
+      rainForecast: { etaMinutes: 30, probability: 70 },
+    });
+  });
+
+  it("returns a weather forecast even when rain is not expected", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T00:00:00Z"));
+    const forecastJson = [
+      {
+        timeSeries: [
+          {
+            timeDefines: ["2026-08-17T00:20:00Z"],
+            areas: [
+              {
+                area: { code: "430010", name: "熊本地方" },
+                weathers: ["晴れ"],
+              },
+            ],
+          },
+          {
+            timeDefines: ["2026-08-17T00:20:00Z"],
+            areas: [
+              {
+                area: { code: "430010", name: "熊本地方" },
+                pops: ["10"],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const { fn } = makeFetch({ forecastJson });
+    const provider = new JmaWeatherProvider({ fetchFn: fn, timeoutMs: 1000 });
+
+    const result = await provider.getWeather(32.8, 130.7);
+    expect(result?.weatherForecast).toEqual({ etaMinutes: 20, weather: "晴れ" });
+    expect(result?.rainForecast).toBeUndefined();
   });
 
   it("falls back to the city-level class20 code for seirei-city ward muniCds", async () => {

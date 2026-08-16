@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DB } from "./index.js";
+import type { WeatherSnapshot, WeatherSnapshotInput } from "../weather/types.js";
 
 export interface Session {
   id: string;
@@ -43,6 +44,28 @@ export interface LocationRow {
   speed_mps: number | null;
   bearing_deg: number | null;
   recorded_at: string;
+  created_at: string;
+}
+
+export interface WeatherSnapshotRow {
+  id: number;
+  session_id: string;
+  recorded_at: string;
+  recorded_minute: string;
+  latitude: number;
+  longitude: number;
+  is_raining: number | null;
+  precipitation_intensity: number | null;
+  temperature_c: number | null;
+  humidity_percent: number | null;
+  wind_speed_ms: number | null;
+  weather_observed_at: string | null;
+  rain_source_observed_at: string | null;
+  amedas_observed_at: string | null;
+  amedas_station_id: string | null;
+  amedas_station_distance_km: number | null;
+  rain_source: string | null;
+  temperature_source: string | null;
   created_at: string;
 }
 
@@ -207,6 +230,94 @@ export function listLocations(
       `SELECT * FROM locations WHERE session_id = ? AND id > ? ORDER BY id ASC LIMIT ?`
     )
     .all(sessionId, afterId, limit) as LocationRow[];
+}
+
+function minuteKey(iso: string): string {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return iso.slice(0, 16);
+  date.setUTCSeconds(0, 0);
+  return date.toISOString();
+}
+
+/** Reserves exactly one weather snapshot for each device-time minute. Reserving before an
+ * external request makes duplicate/retried GPS posts cheap and preserves a null snapshot when
+ * JMA is unavailable instead of blocking location ingestion. */
+export function reserveWeatherSnapshot(
+  db: DB,
+  input: { sessionId: string; recordedAt: string; latitude: number; longitude: number }
+): WeatherSnapshotRow | undefined {
+  const now = new Date().toISOString();
+  const info = db.prepare(
+    `INSERT INTO weather_snapshots (
+      session_id, recorded_at, recorded_minute, latitude, longitude,
+      is_raining, precipitation_intensity, temperature_c, humidity_percent, wind_speed_ms,
+      weather_observed_at, rain_source_observed_at, amedas_observed_at,
+      amedas_station_id, amedas_station_distance_km, rain_source, temperature_source, created_at
+    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?)
+    ON CONFLICT(session_id, recorded_minute) DO NOTHING`
+  ).run(input.sessionId, input.recordedAt, minuteKey(input.recordedAt), input.latitude, input.longitude, now);
+  if (info.changes === 0) return undefined;
+  return db.prepare(`SELECT * FROM weather_snapshots WHERE id = ?`).get(info.lastInsertRowid) as WeatherSnapshotRow;
+}
+
+export function updateWeatherSnapshot(db: DB, id: number, weather: WeatherSnapshotInput): void {
+  db.prepare(
+    `UPDATE weather_snapshots SET
+      is_raining = ?, precipitation_intensity = ?, temperature_c = ?, humidity_percent = ?, wind_speed_ms = ?,
+      weather_observed_at = ?, rain_source_observed_at = ?, amedas_observed_at = ?,
+      amedas_station_id = ?, amedas_station_distance_km = ?, rain_source = ?, temperature_source = ?
+     WHERE id = ?`
+  ).run(
+    weather.isRaining === null ? null : weather.isRaining ? 1 : 0,
+    weather.precipitationIntensity,
+    weather.temperatureC,
+    weather.humidityPercent,
+    weather.windSpeedMs,
+    weather.weatherObservedAt,
+    weather.rainSourceObservedAt,
+    weather.amedasObservedAt,
+    weather.amedasStationId,
+    weather.amedasStationDistanceKm,
+    weather.source.rain,
+    weather.source.temperature,
+    id
+  );
+}
+
+export function listWeatherSnapshots(db: DB, sessionId: string, limit = 500): WeatherSnapshot[] {
+  const rows = db.prepare(
+    `SELECT * FROM weather_snapshots WHERE session_id = ? ORDER BY recorded_at ASC LIMIT ?`
+  ).all(sessionId, limit) as WeatherSnapshotRow[];
+  return rows.map(toWeatherSnapshot);
+}
+
+export function getLatestWeatherSnapshot(db: DB, sessionId: string): WeatherSnapshot | null {
+  const row = db.prepare(
+    `SELECT * FROM weather_snapshots WHERE session_id = ? ORDER BY recorded_at DESC LIMIT 1`
+  ).get(sessionId) as WeatherSnapshotRow | undefined;
+  return row ? toWeatherSnapshot(row) : null;
+}
+
+function toWeatherSnapshot(row: WeatherSnapshotRow): WeatherSnapshot {
+  return {
+    recordedAt: row.recorded_at,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    isRaining: row.is_raining === null ? null : row.is_raining === 1,
+    precipitationIntensity: row.precipitation_intensity,
+    temperatureC: row.temperature_c,
+    humidityPercent: row.humidity_percent,
+    windSpeedMs: row.wind_speed_ms,
+    weatherObservedAt: row.weather_observed_at,
+    rainSourceObservedAt: row.rain_source_observed_at,
+    amedasObservedAt: row.amedas_observed_at,
+    amedasStationId: row.amedas_station_id,
+    amedasStationDistanceKm: row.amedas_station_distance_km,
+    source: {
+      rain: row.rain_source === "jma-nowcast" ? "jma-nowcast" : null,
+      temperature: row.temperature_source === "jma-amedas" ? "jma-amedas" : null,
+    },
+  };
 }
 
 export function createAnalysis(
