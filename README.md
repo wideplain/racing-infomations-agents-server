@@ -50,17 +50,17 @@ Pixel (オンデバイスSTT) → Tailscale → Mac (Fastify + SQLite) → codex
    ```
    出力例:
    ```
-   100.98.167.123   macbook-pro   you@   macOS   -
+   100.x.y.z   my-mac   you@   macOS   -
    ```
-   → MagicDNS 名は `macbook-pro.<tailnet名>.ts.net`、IP は `100.98.167.123`
+   → MagicDNS 名は `<マシン名>.<tailnet名>.ts.net`、IP は `100.x.y.z`
 3. **Android**: Play ストアから Tailscale アプリを入れて同じアカウントでログイン。VPN 常時接続を許可し、バッテリー最適化から除外しておく
 
 ### 接続先の指定方法（MagicDNS 名 と IP）
 
 | 方法 | 例 | 備考 |
 |---|---|---|
-| MagicDNS 名 | `http://macbook-pro.tailXXXX.ts.net:8787` | 読みやすい。DNS 設定が反映されている必要あり |
-| **tailnet IP** | `http://100.98.167.123:8787` | **名前解決を経由しないので確実**。MagicDNS が効かない端末（iOS で稀に発生）はこちら |
+| MagicDNS 名 | `http://my-mac.tailXXXX.ts.net:8787` | 読みやすい。DNS 設定が反映されている必要あり |
+| **tailnet IP** | `http://100.x.y.z:8787` | **名前解決を経由しないので確実**。MagicDNS が効かない端末（iOS で稀に発生）はこちら |
 
 `ERR_NAME_NOT_RESOLVED` が出る場合は MagicDNS ではなく IP を使ってください。iOS で解決しないときは Tailscale アプリの VPN を OFF→ON する、または iCloud プライベートリレーを切ると直ることがあります。
 
@@ -140,7 +140,7 @@ sdk.dir=/Users/<あなた>/Library/Android/sdk
 ### アプリの初期設定
 
 1. アプリを起動し、右上の⚙から**サーバーURL**を入力
-   - 例: `http://100.98.167.123:8787` （IP 指定が確実）
+   - 例: `http://100.x.y.z:8787` （IP 指定が確実）
    - `API_KEY` を設定した場合は API キー欄にも入力
 2. マイクと通知の権限を許可
 3. 「Start」で文字起こし開始
@@ -188,4 +188,4 @@ PC では左右2カラム、モバイルでは上下2段（それぞれ独立ス
 
 ## ライセンス
 
-Private / personal use.
+MIT
