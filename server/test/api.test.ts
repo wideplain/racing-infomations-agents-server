@@ -4,7 +4,7 @@ import { openDb, type DB } from "../src/db/index.js";
 import { buildApp } from "../src/app.js";
 import type { Config } from "../src/config.js";
 import type { AIProvider, AnalyzeInput, AnalyzeOutput } from "../src/ai/types.js";
-import type { WeatherInfo, WeatherProvider } from "../src/weather/types.js";
+import type { WeatherInfo, WeatherProvider, WeatherSnapshotInput, WeatherSnapshotProvider } from "../src/weather/types.js";
 import { RouteResolver } from "../src/route/routeResolver.js";
 
 const config: Config = {
@@ -23,6 +23,25 @@ const config: Config = {
 class FakeWeatherProvider implements WeatherProvider {
   result: WeatherInfo | null = null;
   async getWeather(): Promise<WeatherInfo | null> {
+    return this.result;
+  }
+}
+
+class FakeWeatherSnapshotProvider implements WeatherSnapshotProvider {
+  result: WeatherSnapshotInput = {
+    isRaining: null,
+    precipitationIntensity: null,
+    temperatureC: null,
+    humidityPercent: null,
+    windSpeedMs: null,
+    weatherObservedAt: null,
+    rainSourceObservedAt: null,
+    amedasObservedAt: null,
+    amedasStationId: null,
+    amedasStationDistanceKm: null,
+    source: { rain: null, temperature: null },
+  };
+  async getWeather(): Promise<WeatherSnapshotInput> {
     return this.result;
   }
 }
@@ -90,11 +109,19 @@ class FakeProvider implements AIProvider {
 let db: DB;
 let app: FastifyInstance;
 let fakeWeather: FakeWeatherProvider;
+let fakeWeatherSnapshot: FakeWeatherSnapshotProvider;
 
 beforeEach(async () => {
   db = openDb(":memory:");
   fakeWeather = new FakeWeatherProvider();
-  app = await buildApp({ db, config, provider: new FakeProvider(), weather: fakeWeather });
+  fakeWeatherSnapshot = new FakeWeatherSnapshotProvider();
+  app = await buildApp({
+    db,
+    config,
+    provider: new FakeProvider(),
+    weather: fakeWeather,
+    weatherSnapshotProvider: fakeWeatherSnapshot,
+  });
   await app.ready();
 });
 
@@ -611,6 +638,94 @@ describe("API", () => {
       speed_mps: 12.3,
       bearing_deg: 90,
       recorded_at: "2026-08-16T00:00:00.000Z",
+    });
+  });
+
+  it("returns a current location's weather without requiring a new analysis", async () => {
+    fakeWeather.result = {
+      summaryText: "東京都: 晴れ",
+      fetchedAt: new Date().toISOString(),
+      source: "jma",
+      weatherForecast: { etaMinutes: 0, weather: "晴れ" },
+    };
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: {
+        locations: [{ lat: 35.681236, lng: 139.767125, recordedAt: new Date().toISOString() }],
+      },
+    });
+
+    const weatherRes = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather`,
+      headers: authHeaders(),
+    });
+    expect(weatherRes.statusCode).toBe(200);
+    expect(weatherRes.json()).toMatchObject({
+      weather: { weatherForecast: { etaMinutes: 0, weather: "晴れ" } },
+    });
+  });
+
+  it("records one current-weather snapshot per session minute without blocking location posts", async () => {
+    fakeWeatherSnapshot.result = {
+      isRaining: false,
+      precipitationIntensity: null,
+      temperatureC: 25.3,
+      humidityPercent: 67,
+      windSpeedMs: 2.4,
+      weatherObservedAt: "2026-08-16T12:00:00.000Z",
+      rainSourceObservedAt: "2026-08-16T12:00:00.000Z",
+      amedasObservedAt: "2026-08-16T11:50:00.000Z",
+      amedasStationId: "44132",
+      amedasStationDistanceKm: 4.2,
+      source: { rain: "jma-nowcast", temperature: "jma-amedas" },
+    };
+    const session = (await app.inject({ method: "POST", url: "/api/sessions", headers: authHeaders(), payload: {} })).json();
+    const post = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: {
+        locations: [
+          { lat: 35.681, lng: 139.767, recordedAt: "2026-08-16T12:01:02.000Z" },
+          { lat: 35.682, lng: 139.768, recordedAt: "2026-08-16T12:01:50.000Z" },
+        ],
+      },
+    });
+    expect(post.statusCode).toBe(201);
+
+    let snapshots: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < 10; i++) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/sessions/${session.id}/weather-snapshots`,
+        headers: authHeaders(),
+      });
+      snapshots = response.json().snapshots;
+      if (snapshots[0]?.temperatureC === 25.3) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({
+      recordedAt: "2026-08-16T12:01:02.000Z",
+      isRaining: false,
+      temperatureC: 25.3,
+      humidityPercent: 67,
+      windSpeedMs: 2.4,
+      weatherObservedAt: "2026-08-16T12:00:00.000Z",
+      amedasStationId: "44132",
+      amedasStationDistanceKm: 4.2,
+      source: { rain: "jma-nowcast", temperature: "jma-amedas" },
     });
   });
 

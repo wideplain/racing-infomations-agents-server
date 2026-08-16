@@ -20,13 +20,19 @@
 </head>
 <body>
 <header>
-  <h1 id="pageTitle">ビュワー</h1>
+  <div class="viewer-brand">
+    <span class="viewer-brand-mark" aria-hidden="true">RR</span>
+    <div>
+      <p class="viewer-eyebrow">AI RACE RADIO / LIVE</p>
+      <h1 id="pageTitle">ビュワー</h1>
+    </div>
+  </div>
   <div class="header-actions">
     <nav class="view-tabs" role="tablist">
       <button id="tabLive" type="button" class="view-tab active" role="tab" aria-selected="true">ライブ</button>
       <button id="tabRoute" type="button" class="view-tab" role="tab" aria-selected="false">ルート・時間</button>
     </nav>
-    <button id="hudToggle" type="button">🏎 ドライバー表示</button>
+    <button id="hudToggle" type="button" aria-controls="driverHud" aria-expanded="false">🏎 ドライバー表示</button>
     <details class="apikey-details">
       <summary>API Key</summary>
       <div class="apikey-row">
@@ -73,6 +79,9 @@
       </div>
       <input id="routeSlider" type="range" min="0" max="0" value="0" step="1" />
     </div>
+    <section id="routeWeather" class="route-weather" aria-live="polite">
+      現在地点の天気を記録待ち
+    </section>
     <details id="routeHistoryDetails" class="viewer-pane" open>
       <summary>区間時刻履歴</summary>
       <div id="routeHistory" class="viewer-scroll route-history"></div>
@@ -97,7 +106,7 @@
      with only the newest driver-mode result in huge type, sized to fit an iPhone SE screen
      (375x667) in one screenful with no scrolling. Fixed grid-template-areas below keep every
      element's position constant whether or not `watch` is present, so nothing shifts. -->
-<div id="driverHud" class="driver-hud" hidden>
+<div id="driverHud" class="driver-hud" role="dialog" aria-modal="true" aria-label="ドライバー表示" hidden>
   <button id="hudExit" class="hud-exit" type="button" aria-label="通常表示に戻る">✕</button>
   <div class="hud-body">
     <p id="hudUrgency" class="hud-urgency">緊急度: 低</p>
@@ -105,6 +114,7 @@
     <p id="hudAction" class="hud-action" hidden></p>
     <p id="hudWatch" class="hud-watch" hidden></p>
     <p id="hudMeta" class="hud-meta"></p>
+    <p id="hudForecast" class="hud-forecast" hidden></p>
   </div>
 </div>
 

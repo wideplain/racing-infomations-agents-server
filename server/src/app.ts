@@ -8,6 +8,8 @@ import type { Config } from "./config.js";
 import type { AIProvider } from "./ai/types.js";
 import type { WeatherProvider } from "./weather/types.js";
 import { JmaWeatherProvider, NoopWeatherProvider } from "./weather/jmaProvider.js";
+import { WeatherRecorder } from "./weather/weatherRecorder.js";
+import type { WeatherSnapshotProvider } from "./weather/types.js";
 import { SerialQueue } from "./analysis/queue.js";
 import { RouteResolver } from "./route/routeResolver.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
@@ -22,6 +24,7 @@ export interface AppDeps {
   provider: AIProvider;
   queue?: SerialQueue;
   weather?: WeatherProvider;
+  weatherSnapshotProvider?: WeatherSnapshotProvider;
   routeResolver?: RouteResolver;
 }
 
@@ -34,6 +37,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       ? new JmaWeatherProvider({ timeoutMs: deps.config.weatherTimeoutMs })
       : new NoopWeatherProvider());
   const routeResolver = deps.routeResolver ?? new RouteResolver();
+  const weatherRecorder = deps.weatherSnapshotProvider
+    ? new WeatherRecorder(deps.db, deps.weatherSnapshotProvider)
+    : undefined;
 
   await app.register(fastifyStatic, {
     root: join(__dirname, "..", "public"),
@@ -56,7 +62,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   await app.register(
     async (instance) => {
-      registerSessionRoutes(instance, deps.db, routeResolver);
+      registerSessionRoutes(instance, deps.db, routeResolver, weatherRecorder);
       registerAnalyzeRoutes(instance, deps.db, deps.provider, queue, weather);
     },
     { prefix: "/api" }

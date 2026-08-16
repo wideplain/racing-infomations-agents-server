@@ -12,8 +12,10 @@ import {
   listAnalysesForSession,
   insertLocations,
   listLocations,
+  listWeatherSnapshots,
 } from "../db/repo.js";
 import type { RouteResolver } from "../route/routeResolver.js";
+import type { WeatherSnapshotRecorder } from "../weather/weatherRecorder.js";
 
 const ROUTE_LOCATIONS_LIMIT = 5000;
 
@@ -53,7 +55,8 @@ const segmentPatchSchema = z.object({
 export function registerSessionRoutes(
   app: FastifyInstance,
   db: DB,
-  routeResolver: RouteResolver
+  routeResolver: RouteResolver,
+  weatherRecorder?: WeatherSnapshotRecorder
 ): void {
   app.post("/sessions", async (request, reply) => {
     const parsed = createSessionSchema.safeParse(request.body ?? {});
@@ -122,7 +125,22 @@ export function registerSessionRoutes(
         request.params.id,
         parsed.data.locations
       );
+      try {
+        weatherRecorder?.recordLocations(request.params.id, parsed.data.locations);
+      } catch (error) {
+        // Weather must never turn an otherwise-successful device location post into a failure.
+        request.log.warn({ err: error }, "weather snapshot scheduling failed");
+      }
       return reply.code(201).send({ inserted });
+    }
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/sessions/:id/weather-snapshots",
+    async (request, reply) => {
+      const session = getSession(db, request.params.id);
+      if (!session) return reply.code(404).send({ error: "not_found" });
+      return reply.send({ snapshots: listWeatherSnapshots(db, request.params.id) });
     }
   );
 

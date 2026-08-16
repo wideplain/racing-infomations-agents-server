@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { DB } from "../db/index.js";
 import type { AIProvider } from "../ai/types.js";
-import type { WeatherProvider } from "../weather/types.js";
+import type { RainForecast, WeatherForecast, WeatherProvider } from "../weather/types.js";
 import { SerialQueue, QueueFullError } from "../analysis/queue.js";
 import {
   buildPrompt,
@@ -19,6 +19,7 @@ import {
   updateAnalysis,
   listRecentAnalyses,
   getLatestLocation,
+  getLatestWeatherSnapshot,
 } from "../db/repo.js";
 
 const WEATHER_LOCATION_MAX_AGE_MS = 10 * 60 * 1000;
@@ -89,9 +90,24 @@ function preparePrompt(
   return { prompt: buildPrompt(segments, sessionStartedAt, { instruction }) };
 }
 
-function serializeResult(mode: AnalyzeMode, result: Awaited<ReturnType<AIProvider["analyze"]>>): string {
+function serializeResult(
+  mode: AnalyzeMode,
+  result: Awaited<ReturnType<AIProvider["analyze"]>>,
+  rainForecast?: RainForecast,
+  weatherForecast?: WeatherForecast
+): string {
   if (mode === "pitwall") return JSON.stringify(parsePitwallAnalysis(result.rawOutput));
-  if (mode === "driver") return JSON.stringify(parseDriverAnalysis(result.rawOutput));
+  if (mode === "driver") {
+    return JSON.stringify({
+      ...parseDriverAnalysis(result.rawOutput),
+      ...(rainForecast
+        ? { rainEtaMinutes: rainForecast.etaMinutes, rainProbability: rainForecast.probability }
+        : {}),
+      ...(weatherForecast
+        ? { forecastEtaMinutes: weatherForecast.etaMinutes, forecastWeather: weatherForecast.weather }
+        : {}),
+    });
+  }
   return JSON.stringify({
     summary: result.summary,
     interpretation: result.interpretation,
@@ -126,6 +142,8 @@ function enqueueAnalysis(
   queue
     .enqueue(async () => {
       let finalPrompt = prepared.prompt;
+      let rainForecast: RainForecast | undefined;
+      let weatherForecast: WeatherForecast | undefined;
       if (mode === "driver") {
         let weatherText = "(天気情報なし)";
         let weatherLocation = location;
@@ -141,7 +159,11 @@ function enqueueAnalysis(
         if (weatherLocation) {
           try {
             const result = await weather.getWeather(weatherLocation.lat, weatherLocation.lng);
-            if (result?.summaryText) weatherText = result.summaryText;
+            if (result?.summaryText) {
+              weatherText = result.summaryText;
+              rainForecast = result.rainForecast;
+              weatherForecast = result.weatherForecast;
+            }
           } catch {
             // fall through to the no-weather placeholder
           }
@@ -154,7 +176,7 @@ function enqueueAnalysis(
         updateAnalysis(db, analysis.id, {
           status: "done",
           raw_output: result.rawOutput,
-          result_json: serializeResult(mode, result),
+          result_json: serializeResult(mode, result, rainForecast, weatherForecast),
           duration_ms: result.durationMs,
         });
       } catch (err) {
@@ -178,6 +200,31 @@ export function registerAnalyzeRoutes(
   queue: SerialQueue,
   weather: WeatherProvider
 ): void {
+  // Weather is also available independently of an AI run. The driver HUD must not keep showing
+  // an old forecast merely because the last driver analysis predates the first GPS fix.
+  app.get<{ Params: { id: string } }>(
+    "/sessions/:id/weather",
+    async (request, reply) => {
+      const session = getSession(db, request.params.id);
+      if (!session) return reply.code(404).send({ error: "not_found" });
+      const snapshot = getLatestWeatherSnapshot(db, session.id);
+
+      const location = getLatestLocation(db, session.id);
+      if (!location) return reply.send({ weather: null, snapshot, reason: "location_unavailable" });
+      const ageMs = Date.now() - new Date(location.recorded_at).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > WEATHER_LOCATION_MAX_AGE_MS) {
+        return reply.send({ weather: null, snapshot, reason: "location_stale" });
+      }
+
+      try {
+        const result = await weather.getWeather(location.lat, location.lng);
+        return reply.send({ weather: result, snapshot });
+      } catch {
+        return reply.send({ weather: null, snapshot, reason: "weather_unavailable" });
+      }
+    }
+  );
+
   app.post<{
     Params: { id: string };
     Body:
