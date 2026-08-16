@@ -35,13 +35,13 @@ const requestedSession = new URLSearchParams(location.search).get("session");
 const noSessionSection = document.getElementById("noSessionSection");
 const viewerSection = document.getElementById("viewerSection");
 const segmentsEl = document.getElementById("segments");
+const segmentsLatestBtn = document.getElementById("segmentsLatest");
 const analysesEl = document.getElementById("analyses");
 const statusSessionEl = document.getElementById("statusSession");
 const statusConnectionEl = document.getElementById("statusConnection");
 const statusSegCountEl = document.getElementById("statusSegCount");
 const statusAnalysisCountEl = document.getElementById("statusAnalysisCount");
 const statusLastUpdateEl = document.getElementById("statusLastUpdate");
-const statusLocationEl = document.getElementById("statusLocation");
 
 function setStatusSession() {
   if (followLatest) {
@@ -78,7 +78,7 @@ async function syncLatestSession() {
       segmentsEl.innerHTML = "";
       analysesEl.innerHTML = "";
       setStatusSession();
-      maybeStartLocationSend();
+      resetRouteSessionData();
     }
   } catch (err) {
     console.error(err);
@@ -115,9 +115,23 @@ let lastSegmentsSignature = null;
 let lastAnalysesSignature = null;
 
 let segmentsAtBottom = true;
+function updateSegmentsLatestButton() {
+  if (!segmentsLatestBtn) return;
+  const canScroll = segmentsEl.scrollHeight > segmentsEl.clientHeight + 1;
+  segmentsLatestBtn.hidden = !canScroll || segmentsAtBottom;
+}
+
+function scrollSegmentsToLatest() {
+  segmentsAtBottom = true;
+  segmentsEl.scrollTop = segmentsEl.scrollHeight;
+  updateSegmentsLatestButton();
+}
+
 segmentsEl.addEventListener("scroll", () => {
   segmentsAtBottom = segmentsEl.scrollHeight - segmentsEl.scrollTop - segmentsEl.clientHeight < 40;
+  updateSegmentsLatestButton();
 });
+segmentsLatestBtn?.addEventListener("click", scrollSegmentsToLatest);
 
 async function refreshSegments() {
   let session;
@@ -150,7 +164,11 @@ async function refreshSegments() {
     if (seg.excluded) div.style.opacity = "0.5";
     segmentsEl.appendChild(div);
   }
-  segmentsEl.scrollTop = segmentsAtBottom ? segmentsEl.scrollHeight : prevScrollTop;
+  if (segmentsAtBottom) scrollSegmentsToLatest();
+  else {
+    segmentsEl.scrollTop = prevScrollTop;
+    updateSegmentsLatestButton();
+  }
 }
 
 // Analyses render newest-first, so "following the live feed" means sitting at the top of the
@@ -514,6 +532,10 @@ const ROUTE_TRACK_MAX_DRAW = 5000;
 // A route-history row is a meaningful movement record, not a wall-clock sample. This is well
 // above ordinary GPS drift while producing useful checkpoints while driving.
 const ROUTE_HISTORY_DISTANCE_METERS = 250;
+const ROUTE_WEATHER_SNAPSHOT_REFRESH_MS = 60_000;
+// Snapshots are made once per device minute. A route checkpoint can fall between them, but a
+// farther observation would be misleading, so do not attach one more than 90 seconds away.
+const ROUTE_WEATHER_SNAPSHOT_MATCH_MS = 90_000;
 
 let map = null;
 // True once the MapLibre style has finished loading and sources/layers below exist. Anything
@@ -565,6 +587,23 @@ let routeLoaded = false;
 let routeLoading = false;
 let routeWeatherFetchedAt = 0;
 let routeWeatherSessionId = null;
+let routeWeatherSnapshots = [];
+let routeWeatherSnapshotsFetchedAt = 0;
+let routeWeatherSnapshotsSessionId = null;
+let routeWeatherSnapshotsInFlight = false;
+
+function resetRouteSessionData() {
+  routeLoc = [];
+  routeLastId = 0;
+  routeLoaded = false;
+  routeWeatherFetchedAt = 0;
+  routeWeatherSessionId = null;
+  routeWeatherSnapshots = [];
+  routeWeatherSnapshotsFetchedAt = 0;
+  routeWeatherSnapshotsSessionId = null;
+  routeSlider.value = "0";
+  renderRouteHistory();
+}
 
 async function loadRouteHistoryFull() {
   if (!sessionId || routeLoading) return;
@@ -603,6 +642,9 @@ async function pollRouteHistory() {
     console.error(err);
   }
   if (Date.now() - routeWeatherFetchedAt >= 60_000) refreshRouteWeather();
+  if (Date.now() - routeWeatherSnapshotsFetchedAt >= ROUTE_WEATHER_SNAPSHOT_REFRESH_MS) {
+    refreshRouteWeatherSnapshots();
+  }
 }
 
 function startRouteView() {
@@ -612,6 +654,7 @@ function startRouteView() {
     routePollTimer = setInterval(pollRouteHistory, 2000);
   }
   refreshRouteWeather(true);
+  refreshRouteWeatherSnapshots(true);
 }
 
 function stopRouteView() {
@@ -643,16 +686,55 @@ function renderRouteWeather(snapshot) {
     routeWeatherEl.textContent = "現在地点の天気を記録待ち";
     return;
   }
-  const rain = snapshot.isRaining === true ? "☔ 雨" : snapshot.isRaining === false ? "☀️ 降水なし" : "天気未取得";
-  const values = [
-    typeof snapshot.temperatureC === "number" ? `${snapshot.temperatureC.toFixed(1)}℃` : null,
-    typeof snapshot.humidityPercent === "number" ? `湿度 ${snapshot.humidityPercent}%` : null,
-    typeof snapshot.windSpeedMs === "number" ? `風 ${snapshot.windSpeedMs.toFixed(1)}m/s` : null,
-  ].filter(Boolean);
-  const station = snapshot.amedasStationDistanceKm === null || snapshot.amedasStationDistanceKm === undefined
-    ? ""
-    : ` · AMeDAS ${snapshot.amedasStationDistanceKm.toFixed(1)}km`;
-  routeWeatherEl.textContent = `${rain}${values.length ? ` · ${values.join(" · ")}` : ""}${station}`;
+  const formatTime = (value) => {
+    if (!value || !Number.isFinite(new Date(value).getTime())) return "時刻なし";
+    return new Date(value).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+  const rain = snapshot.isRaining === true ? "☔ 雨" : snapshot.isRaining === false ? "☀️ 降水なし" : "—";
+  const amedasSource = snapshot.amedasStationId
+    ? `AMeDAS ${snapshot.amedasStationId}${typeof snapshot.amedasStationDistanceKm === "number" ? ` · ${snapshot.amedasStationDistanceKm.toFixed(1)}km` : ""}`
+    : "AMeDAS 未取得";
+  const rainSource = snapshot.rainSourceObservedAt
+    ? `解析時刻 ${formatTime(snapshot.rainSourceObservedAt)} 時点`
+    : "JMAナウキャスト · 未取得";
+  const amedasObserved = snapshot.amedasObservedAt
+    ? `観測時刻 ${formatTime(snapshot.amedasObservedAt)} 時点`
+    : amedasSource;
+  const value = (number, suffix, digits = 1) => typeof number === "number" ? `${number.toFixed(digits)}${suffix}` : "—";
+  const detail = (label, valueText, source) => `<div class="route-weather-item">
+    <span>${escapeHtml(label)}</span><strong>${escapeHtml(valueText)}</strong><small>${escapeHtml(source)}</small>
+  </div>`;
+  const recordedAt = formatTime(snapshot.recordedAt);
+  const coordinates = `${Number(snapshot.latitude).toFixed(5)}, ${Number(snapshot.longitude).toFixed(5)}`;
+  routeWeatherEl.innerHTML = `
+    <div class="route-weather-heading">現在地点の天気 <small>位置情報の記録 ${escapeHtml(recordedAt)}</small></div>
+    <div class="route-weather-grid">
+      ${detail("降水", rain, rainSource)}
+      ${detail("気温", value(snapshot.temperatureC, "℃"), amedasObserved)}
+      ${detail("湿度", value(snapshot.humidityPercent, "%", 0), amedasObserved)}
+      ${detail("風速", value(snapshot.windSpeedMs, "m/s"), amedasObserved)}
+    </div>
+    <p class="route-weather-location">${escapeHtml(amedasSource)} · 記録地点 ${escapeHtml(coordinates)}</p>
+  `;
+}
+
+async function refreshRouteWeatherSnapshots(force = false) {
+  if (!sessionId || routeWeatherSnapshotsInFlight) return;
+  if (!force && Date.now() - routeWeatherSnapshotsFetchedAt < ROUTE_WEATHER_SNAPSHOT_REFRESH_MS) return;
+  const requestedSessionId = sessionId;
+  routeWeatherSnapshotsInFlight = true;
+  try {
+    const response = await api(`/api/sessions/${requestedSessionId}/weather-snapshots`);
+    if (sessionId !== requestedSessionId) return;
+    routeWeatherSnapshots = response.snapshots || [];
+    routeWeatherSnapshotsSessionId = requestedSessionId;
+    routeWeatherSnapshotsFetchedAt = Date.now();
+    renderRouteHistory();
+  } catch (err) {
+    console.warn("route weather snapshot refresh failed", err);
+  } finally {
+    routeWeatherSnapshotsInFlight = false;
+  }
 }
 
 function decimate(arr, maxLen) {
@@ -802,6 +884,41 @@ function routeHistoryEntries() {
   return entries;
 }
 
+function weatherSnapshotNearRouteTime(recordedAt) {
+  if (routeWeatherSnapshotsSessionId !== sessionId || routeWeatherSnapshots.length === 0) return null;
+  const target = new Date(recordedAt).getTime();
+  if (!Number.isFinite(target)) return null;
+  let low = 0;
+  let high = routeWeatherSnapshots.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (new Date(routeWeatherSnapshots[middle].recordedAt).getTime() < target) low = middle + 1;
+    else high = middle;
+  }
+  const candidates = [routeWeatherSnapshots[low - 1], routeWeatherSnapshots[low]].filter(Boolean);
+  let closest = null;
+  let closestDistance = Infinity;
+  for (const snapshot of candidates) {
+    const distance = Math.abs(new Date(snapshot.recordedAt).getTime() - target);
+    if (distance < closestDistance) {
+      closest = snapshot;
+      closestDistance = distance;
+    }
+  }
+  return closestDistance <= ROUTE_WEATHER_SNAPSHOT_MATCH_MS ? closest : null;
+}
+
+function routeHistoryWeatherText(snapshot) {
+  if (!snapshot) return "—";
+  const values = [];
+  if (snapshot.isRaining === true) values.push("☔");
+  if (snapshot.isRaining === false) values.push("☀️");
+  if (typeof snapshot.temperatureC === "number") values.push(`${snapshot.temperatureC.toFixed(0)}°`);
+  if (typeof snapshot.humidityPercent === "number") values.push(`${snapshot.humidityPercent.toFixed(0)}%`);
+  if (typeof snapshot.windSpeedMs === "number") values.push(`${snapshot.windSpeedMs.toFixed(1)}m/s`);
+  return values.length > 0 ? values.join(" ") : "—";
+}
+
 function renderRouteHistory() {
   const entries = routeHistoryEntries();
 
@@ -815,10 +932,12 @@ function renderRouteHistory() {
         speeds.length > 0 ? ((speeds.reduce((a, c) => a + c, 0) / speeds.length) * 3.6).toFixed(1) : "-";
       const time = new Date(location.recorded_at).toLocaleTimeString("ja-JP");
       const coord = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`;
+      const weather = routeHistoryWeatherText(weatherSnapshotNearRouteTime(location.recorded_at));
       return `<tr class="route-history-row" data-recorded-at="${escapeHtml(location.recorded_at)}">
         <td>${escapeHtml(time)}</td>
         <td>${escapeHtml(coord)}</td>
         <td>${escapeHtml(avgSpeedKmh)} km/h</td>
+        <td class="route-history-weather">${escapeHtml(weather)}</td>
         <td>${entry.points.length}</td>
       </tr>`;
     })
@@ -826,7 +945,7 @@ function renderRouteHistory() {
 
   routeHistoryEl.innerHTML = `
     <table>
-      <thead><tr><th>開始時刻</th><th>座標</th><th>平均速度</th><th>点数</th></tr></thead>
+      <thead><tr><th>開始時刻</th><th>座標</th><th>平均速度</th><th>天気</th><th>点数</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -892,130 +1011,6 @@ function renderRouteNames(route) {
 
 routeNamesRefreshBtn.addEventListener("click", refreshRouteNames);
 renderRouteNames([]);
-
-// ── Send this device's location ────────────────────────────────────────────
-// Auto-starts once a session id is known (either the explicit ?session= or the id
-// syncLatestSession() resolves while following "latest"). Points are buffered and flushed
-// in small batches so a flaky connection doesn't mean one fetch per GPS fix.
-const LOCATION_SEND_BUFFER_MAX = 10;
-const LOCATION_SEND_BATCH_SIZE = 3;
-const LOCATION_SEND_INTERVAL_MS = 3000;
-
-let locationWatchId = null;
-let locationSendBuffer = [];
-let locationSendInFlight = false;
-
-// Maps the feature's existing long-form messages to a short label that fits the status bar.
-const LOCATION_STATUS_LABELS = {
-  "この環境では位置情報を利用できません（HTTPS接続が必要です）": "HTTPS必須",
-  "この環境では位置情報を利用できません": "HTTPS必須",
-  "位置送信中": "送信中",
-  "位置情報の送信に失敗しました": "送信失敗・再試行中",
-  "位置情報の権限がありません": "権限なし",
-  "位置情報を取得できません": "取得不可",
-};
-
-function setSendLocationStatus(text) {
-  if (!statusLocationEl) return;
-  statusLocationEl.hidden = false;
-  statusLocationEl.textContent = LOCATION_STATUS_LABELS[text] || text;
-  statusLocationEl.classList.toggle("status-error", text !== "位置送信中");
-}
-
-function locationSendPointFromPosition(position) {
-  const c = position.coords;
-  const point = {
-    lat: c.latitude,
-    lng: c.longitude,
-    recordedAt: new Date(position.timestamp).toISOString(),
-  };
-  if (typeof c.accuracy === "number" && !Number.isNaN(c.accuracy)) point.accuracyM = c.accuracy;
-  if (typeof c.speed === "number" && !Number.isNaN(c.speed)) point.speedMps = c.speed;
-  if (typeof c.heading === "number" && !Number.isNaN(c.heading)) point.bearingDeg = c.heading;
-  return point;
-}
-
-async function flushLocationSendBuffer() {
-  if (locationSendInFlight || locationSendBuffer.length === 0) return;
-  if (!sessionId) {
-    locationSendBuffer = [];
-    return;
-  }
-  const batch = locationSendBuffer.splice(0, LOCATION_SEND_BATCH_SIZE);
-  locationSendInFlight = true;
-  try {
-    await api(`/api/sessions/${sessionId}/locations`, {
-      method: "POST",
-      body: JSON.stringify({ locations: batch }),
-    });
-    setSendLocationStatus("位置送信中");
-  } catch (err) {
-    console.warn("location send failed; will retry", err);
-    locationSendBuffer = [...batch, ...locationSendBuffer].slice(0, LOCATION_SEND_BUFFER_MAX);
-    const statusCode = typeof err?.statusCode === "number" ? err.statusCode : undefined;
-    const apiError = typeof err?.apiError === "string" ? err.apiError : "";
-    if (statusCode === 404 && apiError === "not_found") {
-      setSendLocationStatus("セッション未検出 (404)");
-    } else if (statusCode === 404 && apiError.includes("Route POST")) {
-      setSendLocationStatus("位置情報API未反映 (404)");
-    } else {
-      setSendLocationStatus(statusCode ? `送信失敗 (${statusCode})` : "位置情報の送信に失敗しました");
-    }
-  } finally {
-    locationSendInFlight = false;
-  }
-}
-
-function pushLocationSendPoint(point) {
-  locationSendBuffer.push(point);
-  if (locationSendBuffer.length > LOCATION_SEND_BUFFER_MAX) locationSendBuffer.shift();
-  if (locationSendBuffer.length >= LOCATION_SEND_BATCH_SIZE) flushLocationSendBuffer();
-}
-
-setInterval(() => {
-  if (locationSendBuffer.length > 0) flushLocationSendBuffer();
-}, LOCATION_SEND_INTERVAL_MS);
-
-function startLocationWatch() {
-  if (locationWatchId !== null) return; // already watching
-  if (!window.isSecureContext) {
-    setSendLocationStatus("この環境では位置情報を利用できません（HTTPS接続が必要です）");
-    return;
-  }
-  if (!navigator.geolocation) {
-    setSendLocationStatus("この環境では位置情報を利用できません");
-    return;
-  }
-  locationWatchId = navigator.geolocation.watchPosition(
-    (position) => {
-      setSendLocationStatus("位置送信中");
-      pushLocationSendPoint(locationSendPointFromPosition(position));
-    },
-    (err) => {
-      setSendLocationStatus(
-        err.code === err.PERMISSION_DENIED
-          ? "位置情報の権限がありません"
-          : "位置情報を取得できません"
-      );
-    },
-    { enableHighAccuracy: true, maximumAge: 0 }
-  );
-}
-
-function stopLocationWatch() {
-  if (locationWatchId === null) return;
-  navigator.geolocation.clearWatch(locationWatchId);
-  locationWatchId = null;
-}
-
-window.addEventListener("beforeunload", stopLocationWatch);
-
-// Called once at load (covers an explicit ?session=) and again whenever syncLatestSession()
-// resolves a session id while following "latest"; startLocationWatch() is a no-op once running.
-function maybeStartLocationSend() {
-  if (sessionId) startLocationWatch();
-}
-maybeStartLocationSend();
 
 function escapeHtml(str) {
   const div = document.createElement("div");
