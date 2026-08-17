@@ -163,6 +163,123 @@ export function parsePitwallAnalysis(rawText: string): ParsedPitwallAnalysis {
   };
 }
 
+const questionSchema = z.object({
+  answer: z.string().nullable().default(null),
+  basedOn: z
+    .array(
+      z.object({
+        at: z.string().nullable().default(null),
+        quote: z.string().nullable().default(null),
+      })
+    )
+    .nullable()
+    .default(null),
+  confidence: z.enum(["low", "medium", "high"]).nullable().default(null),
+  unknown: z.array(z.string()).nullable().default(null),
+});
+
+export interface QuestionEvidence {
+  /** The transcript's elapsed "mm:ss" stamp, as the model emitted it. */
+  at: string;
+  /** [at] resolved against the session start, or null when it wasn't a readable mm:ss. */
+  clock: string | null;
+  quote: string;
+}
+
+export interface ParsedQuestionAnalysis {
+  answer: string;
+  basedOn: QuestionEvidence[];
+  confidence: "low" | "medium" | "high" | null;
+  unknown: string[];
+  parseFallback: boolean;
+}
+
+/** The model is asked for elapsed "mm:ss" because that is what the transcript it reads is
+ * stamped with; a crew member checking the claim against the viewer's log wants a wall clock.
+ * Resolving it here means all three clients (viewer, テキストテスト page, Android) just print
+ * the string instead of each reimplementing the arithmetic.
+ *
+ * [transcriptStamps] is the set of stamps that actually appeared in the prompt, and a citation
+ * outside it resolves to null rather than to a time. Arithmetic alone would happily turn a
+ * hallucinated "07:15", or a wall-clock time copied out of the prior-records block, into an
+ * exact-looking HH:MM:SS — and basedOn exists precisely so a crew member can check a claim before
+ * relaying it to a driver at speed. An unresolved stamp is a useful warning; a fabricated one is
+ * the failure this mode is built to avoid. */
+function toWallClock(
+  at: string,
+  sessionStartedAt: string,
+  transcriptStamps: ReadonlySet<string>
+): string | null {
+  const match = at.trim().match(/^\[?(\d{1,4}):([0-5]\d)\]?$/);
+  if (!match) return null;
+  // buildTranscript zero-pads minutes to two digits, so "5:07" and "05:07" are the same line.
+  if (!transcriptStamps.has(`${match[1].padStart(2, "0")}:${match[2]}`)) return null;
+  const startedMs = new Date(sessionStartedAt).getTime();
+  if (!Number.isFinite(startedMs)) return null;
+  const elapsedMs = (Number(match[1]) * 60 + Number(match[2])) * 1000;
+  const d = new Date(startedMs + elapsedMs);
+  const hh = d.getHours().toString().padStart(2, "0");
+  const mm = d.getMinutes().toString().padStart(2, "0");
+  const ss = d.getSeconds().toString().padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function fillQuestionFromZod(
+  candidate: unknown,
+  sessionStartedAt: string,
+  transcriptStamps: ReadonlySet<string>
+): ParsedQuestionAnalysis | undefined {
+  const parsed = questionSchema.safeParse(candidate);
+  if (!parsed.success) return undefined;
+  const d = parsed.data;
+  return {
+    answer: d.answer ?? "",
+    basedOn: (d.basedOn ?? []).map((e) => {
+      const at = e.at ?? "";
+      return {
+        at,
+        clock: toWallClock(at, sessionStartedAt, transcriptStamps),
+        quote: e.quote ?? "",
+      };
+    }),
+    confidence: d.confidence ?? null,
+    unknown: d.unknown ?? [],
+    parseFallback: false,
+  };
+}
+
+/**
+ * Same fallback chain as the other parsers: JSON.parse -> code-fence strip -> outermost {..}
+ * extraction -> zod validation with null-fill -> raw-text fallback (parseFallback: true).
+ * [sessionStartedAt] and [transcriptStamps] are only used to resolve each basedOn entry's mm:ss
+ * into a wall clock — see toWallClock for why an unrecognised stamp stays unresolved.
+ */
+export function parseQuestionAnalysis(
+  rawText: string,
+  sessionStartedAt: string,
+  transcriptStamps: ReadonlySet<string>
+): ParsedQuestionAnalysis {
+  const candidates = [
+    tryDirectJson(rawText),
+    tryFenceStrip(rawText),
+    tryOutermostBraces(rawText),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate === undefined) continue;
+    const filled = fillQuestionFromZod(candidate, sessionStartedAt, transcriptStamps);
+    if (filled) return filled;
+  }
+
+  return {
+    answer: rawText.trim(),
+    basedOn: [],
+    confidence: null,
+    unknown: [],
+    parseFallback: true,
+  };
+}
+
 const driverSchema = z.object({
   headline: z.string().nullable().default(null),
   action: z.string().nullable().default(null),

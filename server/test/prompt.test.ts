@@ -5,8 +5,16 @@ import {
   buildPitwallPrompt,
   buildDriverPrompt,
   buildDecisions,
+  buildQuestionPrompt,
+  buildPriorRecords,
+  transcriptStamps,
+  DEFAULT_MAX_SEGMENTS,
+  DEFAULT_MAX_CHARS,
+  QUESTION_MAX_SEGMENTS,
+  QUESTION_MAX_CHARS,
   type PromptSegment,
   type PitwallDecision,
+  type PriorRecord,
 } from "../src/analysis/prompt.js";
 
 const baseTime = new Date("2026-08-16T00:00:00.000Z");
@@ -163,5 +171,98 @@ describe("buildDriverPrompt", () => {
     expect(prompt).toContain("[00:00] 発言0");
     expect(prompt).toContain("なし");
     expect(prompt).toContain("{{WEATHER}}");
+  });
+});
+
+describe("buildPriorRecords", () => {
+  it("returns なし when there are no prior records", () => {
+    expect(buildPriorRecords([])).toBe("なし");
+  });
+
+  it("formats prior records as (ラベル hh:mm) 本文 lines", () => {
+    const records: PriorRecord[] = [
+      {
+        createdAt: "2026-08-16T01:02:00.000Z",
+        label: "ピットウォール",
+        text: "状況: 順調 / 提案: ピットインを検討",
+      },
+    ];
+    const out = buildPriorRecords(records);
+    expect(out).toMatch(/^\(ピットウォール \d{2}:\d{2}\) 状況: 順調 \/ 提案: ピットインを検討$/);
+  });
+
+  it("never starts a line with a bracketed stamp, which would read as a transcript position", () => {
+    // transcriptStamps() anchors on line-leading brackets, and the model is told a bracketed
+    // stamp is an elapsed transcript position. A record's wall clock must not look like one.
+    const out = buildPriorRecords([
+      { createdAt: "2026-08-16T01:02:00.000Z", label: "質問", text: "Q: 燃料は？ / A: 5周分" },
+    ]);
+    expect(out).not.toMatch(/^\[/m);
+    expect(transcriptStamps(out).size).toBe(0);
+  });
+});
+
+describe("transcriptStamps", () => {
+  it("collects the bracketed elapsed stamps of a built question prompt's transcript", () => {
+    const prompt = buildQuestionPrompt(makeSegments(3), baseTime.toISOString(), [], {
+      template: "{{TRANSCRIPT}}\n{{DECISIONS}}\n{{QUESTION}}",
+      question: "q",
+    });
+    expect(transcriptStamps(prompt)).toEqual(new Set(["00:00", "00:01", "00:02"]));
+  });
+
+  it("ignores a bracketed stamp that is not at the start of a line", () => {
+    expect(transcriptStamps("答えは [12:34] のあたりです")).toEqual(new Set());
+  });
+});
+
+describe("buildQuestionPrompt", () => {
+  it("substitutes {{TRANSCRIPT}}, {{DECISIONS}} and {{QUESTION}}", () => {
+    const segs = makeSegments(1);
+    const records: PriorRecord[] = [
+      { createdAt: baseTime.toISOString(), label: "質問", text: "Q: 燃料は？ / A: 5周分" },
+    ];
+    const prompt = buildQuestionPrompt(segs, baseTime.toISOString(), records, {
+      template: "HEADER\n{{TRANSCRIPT}}\n---\n{{DECISIONS}}\n---\n{{QUESTION}}\nFOOTER",
+      question: "タイヤは何周目に交換した？",
+    });
+    expect(prompt).toContain("[00:00] 発言0");
+    expect(prompt).toMatch(/\(質問 \d{2}:\d{2}\) Q: 燃料は？ \/ A: 5周分/);
+    expect(prompt).toContain("タイヤは何周目に交換した？");
+  });
+
+  it("defaults to QUESTION_MAX_SEGMENTS, keeping lines the 40-segment default would drop", () => {
+    const segs = makeSegments(50);
+    const prompt = buildQuestionPrompt(segs, baseTime.toISOString(), [], {
+      template: "{{TRANSCRIPT}}\n{{DECISIONS}}\n{{QUESTION}}",
+      question: "q",
+    });
+    // With the default 40-segment window this would have scrolled out; question mode's
+    // wider window must still surface it.
+    expect(prompt).toContain("発言0\n");
+  });
+
+  it("QUESTION_MAX_SEGMENTS and QUESTION_MAX_CHARS are wider than the reporting-mode defaults", () => {
+    expect(QUESTION_MAX_SEGMENTS).toBeGreaterThan(DEFAULT_MAX_SEGMENTS);
+    expect(QUESTION_MAX_CHARS).toBeGreaterThan(DEFAULT_MAX_CHARS);
+  });
+
+  it("says so when the window dropped older lines, instead of presenting an excerpt as complete", () => {
+    const prompt = buildQuestionPrompt(makeSegments(10), baseTime.toISOString(), [], {
+      template: "{{TRANSCRIPT}}\n{{DECISIONS}}\n{{QUESTION}}",
+      question: "q",
+      maxSegments: 3,
+    });
+    expect(prompt).toContain("これ以前の発言はこのプロンプトに含まれていません");
+    expect(prompt).toContain("発言9");
+    expect(prompt).not.toContain("発言6");
+  });
+
+  it("adds no truncation notice when the whole conversation fits", () => {
+    const prompt = buildQuestionPrompt(makeSegments(3), baseTime.toISOString(), [], {
+      template: "{{TRANSCRIPT}}\n{{DECISIONS}}\n{{QUESTION}}",
+      question: "q",
+    });
+    expect(prompt).not.toContain("これ以前の発言");
   });
 });

@@ -219,8 +219,8 @@ function renderAnalysisEntry(a) {
   div.className = "analysis-entry";
   const time = new Date(a.created_at).toLocaleTimeString("ja-JP");
   const modeLabel =
-    a.mode === "pitwall" ? "ピットウォール" : a.mode === "driver" ? "ドライバー" : "通常";
-  const modeClass = a.mode === "pitwall" ? "pitwall" : a.mode === "driver" ? "driver" : "";
+    a.mode === "pitwall" ? "ピットウォール" : a.mode === "driver" ? "ドライバー" : a.mode === "question" ? "質問応答" : "通常";
+  const modeClass = a.mode === "pitwall" ? "pitwall" : a.mode === "driver" ? "driver" : a.mode === "question" ? "question" : "";
   let body = "";
 
   if (a.status === "queued") body = `<p class="status-queued">解析待ち…</p>`;
@@ -232,7 +232,9 @@ function renderAnalysisEntry(a) {
         ? renderPitwall(a.result)
         : a.mode === "driver"
           ? renderDriver(a.result)
-          : renderDefault(a.result);
+          : a.mode === "question"
+            ? renderQuestion(a.result)
+            : renderDefault(a.result);
   } else {
     body = `<p>結果なし</p>`;
   }
@@ -263,6 +265,36 @@ function renderPitwall(r) {
     <h4>提案</h4><p>${proposalPrefix}${escapeHtml(r.proposal || "-")}</p>
     <h4>根拠事実</h4><ul>${facts}</ul>
     ${r.warnings && r.warnings.length ? `<h4 class="warn">警告</h4><ul class="warn">${warnings}</ul>` : ""}
+    <p>信頼度: ${escapeHtml(confidenceLabel || "-")}</p>
+  `;
+}
+
+function renderQuestion(r) {
+  // The viewer is read-only, so whoever sees this result never saw the request that produced
+  // it — without the question on screen, the answer below is unreadable out of context. A
+  // missing `asked` means an old/malformed row, not a real blank, so render nothing for it
+  // rather than an empty "質問" heading.
+  const asked = r.asked && String(r.asked).trim()
+    ? `<h4>質問</h4><p>${escapeHtml(r.asked)}</p>`
+    : "";
+  // A null clock means the server could not match the cited stamp to any line it showed the
+  // model, so the quote can't be looked up in the log — which is exactly what the crew is
+  // supposed to do with it before relaying it. Say so rather than printing a bare number.
+  const basedOn = (r.basedOn || [])
+    .map((b) => {
+      const when = b.clock
+        ? escapeHtml(b.clock)
+        : `${escapeHtml(b.at || "-")}<span class="warn">（ログと一致せず）</span>`;
+      return `<li>${when} 「${escapeHtml(b.quote || "-")}」</li>`;
+    })
+    .join("");
+  const unknown = (r.unknown || []).map((x) => `<li>${escapeHtml(x)}</li>`).join("");
+  const confidenceLabel = { low: "低", medium: "中", high: "高" }[r.confidence] || r.confidence;
+  return `
+    ${asked}
+    <h4>回答</h4><p>${escapeHtml(r.answer || "-")}</p>
+    <h4>根拠</h4><ul>${basedOn}</ul>
+    ${r.unknown && r.unknown.length ? `<h4 class="warn">記録にない点</h4><ul class="warn">${unknown}</ul>` : ""}
     <p>信頼度: ${escapeHtml(confidenceLabel || "-")}</p>
   `;
 }

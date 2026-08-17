@@ -92,7 +92,7 @@ private fun AnalysisEntryCard(entry: AnalysisEntry) {
         )
         if (!entry.instruction.isNullOrBlank()) {
             Text(
-                text = "📝 ${entry.instruction}",
+                text = "${if (entry.mode == "question") "❓" else "📝"} ${entry.instruction}",
                 style = MaterialTheme.typography.bodySmall,
                 fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
             )
@@ -107,6 +107,51 @@ private fun AnalysisEntryCard(entry: AnalysisEntry) {
                 val result = entry.result?.result
                 if (result == null) {
                     Text("結果がありません")
+                } else if (result.answer != null) {
+                    // Question-mode result: the crew asked something directly and needs a
+                    // verifiable answer to relay over the phone — so 根拠 (which utterance, when)
+                    // comes right alongside the answer, and 記録にない点 is never hidden, since a
+                    // vague relayed answer is worse than an honest "no answer".
+                    SectionTitle("回答")
+                    Text(result.answer)
+                    if (result.basedOn.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        SectionTitle("根拠")
+                        result.basedOn.forEach {
+                            Text(
+                                "・${basedOnWhen(it)} ${it.quote}",
+                                color = if (it.clock == null) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    androidx.compose.ui.graphics.Color.Unspecified
+                                },
+                            )
+                        }
+                    }
+                    if (result.unknown.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        SectionTitle("記録にない点")
+                        result.unknown.forEach { Text("・$it", color = MaterialTheme.colorScheme.error) }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.AssistChip(
+                        onClick = {},
+                        label = { Text("信頼度: ${result.confidenceText()}") },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { copyToClipboard(context, buildCopyText(result)) }) {
+                        Text("コピー")
+                    }
+                    Row {
+                        Text("raw JSONを表示")
+                        Switch(checked = showRaw, onCheckedChange = { showRaw = it })
+                    }
+                    if (showRaw) {
+                        val rawJson = entry.result.let {
+                            runCatching { Json { prettyPrint = true }.encodeToString(it) }.getOrNull()
+                        } ?: "-"
+                        Text(rawJson)
+                    }
                 } else if (result.headline != null) {
                     // Driver-mode result: same four short fields the HUD shows, rendered inline
                     // for when the user switches to the detailed view.
@@ -226,8 +271,25 @@ private fun SectionTitle(text: String) {
     Text(text, fontWeight = FontWeight.Bold)
 }
 
+/** A null clock means the server could not match the cited stamp to any line it showed the model,
+ * so the quote can't be checked against the log — which is the one thing 根拠 is for. Flag it
+ * instead of printing a bare number that looks just as authoritative as a resolved one. */
+private fun basedOnWhen(entry: com.example.racingagents.net.BasedOnEntry): String =
+    entry.clock ?: "${entry.at}（ログと一致せず）"
+
 private fun buildCopyText(result: com.example.racingagents.net.AnalysisResultDto): String = buildString {
-    if (result.headline != null) {
+    if (result.answer != null) {
+        appendLine("回答: ${result.answer}")
+        if (result.basedOn.isNotEmpty()) {
+            appendLine("根拠:")
+            result.basedOn.forEach { appendLine("・${basedOnWhen(it)} ${it.quote}") }
+        }
+        if (result.unknown.isNotEmpty()) {
+            appendLine("記録にない点:")
+            result.unknown.forEach { appendLine("・$it") }
+        }
+        appendLine("信頼度: ${result.confidenceText()}")
+    } else if (result.headline != null) {
         appendLine("状況: ${result.headline}")
         appendLine("次の一手: ${result.action ?: "-"}")
         if (!result.watch.isNullOrBlank()) appendLine("注意: ${result.watch}")

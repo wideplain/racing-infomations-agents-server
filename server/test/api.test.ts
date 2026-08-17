@@ -97,6 +97,27 @@ class FakeProvider implements AIProvider {
         durationMs: 5,
       };
     }
+    if (input.schemaPath && input.schemaPath.endsWith("question.schema.json")) {
+      // Cites the transcript's first line the way a well-behaved model would, so the route's
+      // stamp validation is exercised rather than bypassed by an invented time.
+      const citedAt = input.prompt.match(/^\[(\d{1,4}:[0-5]\d)\]/m)?.[1] ?? "00:00";
+      return {
+        summary: "",
+        interpretation: "",
+        advice: [],
+        suggested_response: "",
+        confidence: null,
+        notes: null,
+        parseFallback: false,
+        rawOutput: JSON.stringify({
+          answer: "燃料はあと5周分残っています。",
+          basedOn: [{ at: citedAt, quote: "燃料はあと5周分いけます" }],
+          confidence: "medium",
+          unknown: ["正確なリッター数は記録にありません"],
+        }),
+        durationMs: 5,
+      };
+    }
     return {
       summary: "要約",
       interpretation: "解釈",
@@ -332,6 +353,200 @@ describe("API", () => {
     expect(result.action).toBe("点検のタイミングを確認");
     expect(result.watch).toBeNull();
     expect(result.urgency).toBe("low");
+  });
+
+  it("runs a question-mode analyze end-to-end and persists mode + parsed result + asked", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/segments`,
+      headers: authHeaders(),
+      payload: { segments: [{ clientSeq: 1, text: "燃料はあと5周分いけます" }] },
+    });
+
+    const analyzeRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "question", instruction: "燃料はあとどれくらい？" },
+    });
+    expect(analyzeRes.statusCode).toBe(202);
+    const { analysisId } = analyzeRes.json();
+
+    let status = "";
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${analysisId}`,
+        headers: authHeaders(),
+      });
+      body = pollRes.json();
+      status = body.status as string;
+      if (status === "done" || status === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(status).toBe("done");
+    expect(body.mode).toBe("question");
+    const result = body.result as Record<string, unknown>;
+    expect(result.answer).toBe("燃料はあと5周分残っています。");
+    const basedOn = result.basedOn as Array<{ at: string; clock: string | null; quote: string }>;
+    expect(basedOn[0].quote).toBe("燃料はあと5周分いけます");
+    // The cited stamp exists in the transcript the prompt showed, so it resolves to a wall clock
+    // the crew can look up; an invented one would come back null instead.
+    expect(basedOn[0].clock).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+    expect(result.confidence).toBe("medium");
+    expect(result.unknown).toEqual(["正確なリッター数は記録にありません"]);
+    expect(result.asked).toBe("燃料はあとどれくらい？");
+  });
+
+  it("rejects a question-mode analyze with no instruction, leaving no analysis row behind", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    const missing = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "question" },
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json()).toEqual({ error: "question_required" });
+
+    const blank = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "question", instruction: "   " },
+    });
+    expect(blank.statusCode).toBe(400);
+    expect(blank.json()).toEqual({ error: "question_required" });
+
+    const analysesRes = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/analyses`,
+      headers: authHeaders(),
+    });
+    expect(analysesRes.json()).toEqual([]);
+  });
+
+  it("substitutes the question into the persisted prompt's {{QUESTION}} placeholder", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/segments`,
+      headers: authHeaders(),
+      payload: { segments: [{ clientSeq: 1, text: "燃料はあと5周分いけます" }] },
+    });
+
+    const analyzeRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "question", instruction: "燃料はあとどれくらい？" },
+    });
+    const { analysisId } = analyzeRes.json();
+
+    let status = "";
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${analysisId}`,
+        headers: authHeaders(),
+      });
+      body = pollRes.json();
+      status = body.status as string;
+      if (status === "done" || status === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(status).toBe("done");
+    expect(body.prompt as string).toContain("燃料はあとどれくらい？");
+    expect(body.prompt as string).not.toContain("{{QUESTION}}");
+  });
+
+  it("carries a completed pitwall run's proposal into a later question run's prompt", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/segments`,
+      headers: authHeaders(),
+      payload: { segments: [{ clientSeq: 1, text: "1周目通過" }] },
+    });
+
+    const pitwallRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "pitwall" },
+    });
+    const { analysisId: pitwallId } = pitwallRes.json();
+
+    let pitwallStatus = "";
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${pitwallId}`,
+        headers: authHeaders(),
+      });
+      pitwallStatus = pollRes.json().status;
+      if (pitwallStatus === "done" || pitwallStatus === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(pitwallStatus).toBe("done");
+
+    const questionRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "question", instruction: "次のピットインの提案は？" },
+    });
+    const { analysisId: questionId } = questionRes.json();
+
+    let status = "";
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${questionId}`,
+        headers: authHeaders(),
+      });
+      body = pollRes.json();
+      status = body.status as string;
+      if (status === "done" || status === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(status).toBe("done");
+    expect(body.prompt as string).toContain("次のピットで確認してはどうでしょうか。");
   });
 
   it("rejects an unknown analyze mode", async () => {

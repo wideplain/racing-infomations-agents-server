@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "answer": { "type": "string" },
+    "basedOn": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": { "type": "string" },
+          "quote": { "type": "string" }
+        },
+        "required": ["at", "quote"],
+        "additionalProperties": false
+      }
+    },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+    "unknown": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["answer", "basedOn", "confidence", "unknown"],
+  "additionalProperties": false
+}
