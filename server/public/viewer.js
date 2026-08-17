@@ -83,6 +83,12 @@ async function syncLatestSession() {
       analysesEl.innerHTML = "";
       setStatusSession();
       resetRouteSessionData();
+      // The pit layout starts both views at page load, before this first /api/sessions response
+      // has named a session — so their opening fetch returned immediately having done nothing.
+      // Kick whichever is on screen now that there is something to ask about, or the weather
+      // column sits on "位置情報を待っています" until its 60-second timer comes round.
+      if (!routeSection.hidden) startRouteView();
+      if (!weatherSection.hidden) startWeatherView();
     }
   } catch (err) {
     console.error(err);
@@ -644,6 +650,8 @@ let weatherPrecipitationOutlook = null;
 let weatherForecastTimelineSessionId = null;
 let weatherForecastTimelineFetchedAt = 0;
 let weatherForecastTimelineInFlight = false;
+// Why the last response carried no forecast, so the empty state can say something useful.
+let weatherForecastTimelineReason = null;
 
 function resetRouteSessionData() {
   routeLoc = [];
@@ -658,6 +666,7 @@ function resetRouteSessionData() {
   weatherPrecipitationOutlook = null;
   weatherForecastTimelineSessionId = null;
   weatherForecastTimelineFetchedAt = 0;
+  weatherForecastTimelineReason = null;
   routeSlider.value = "0";
   renderRouteHistory();
   renderWeatherTimeline();
@@ -740,6 +749,7 @@ async function refreshWeatherForecastTimeline(force = false) {
     if (requestedSessionId !== sessionId) return;
     weatherForecastTimeline = response.timeline || null;
     weatherPrecipitationOutlook = response.precipitation || null;
+    weatherForecastTimelineReason = response.reason || null;
     weatherForecastTimelineSessionId = requestedSessionId;
     weatherForecastTimelineFetchedAt = Date.now();
     renderWeatherTimeline();
@@ -748,6 +758,7 @@ async function refreshWeatherForecastTimeline(force = false) {
     if (requestedSessionId === sessionId) {
       weatherForecastTimeline = null;
       weatherPrecipitationOutlook = null;
+      weatherForecastTimelineReason = "request_failed";
       weatherForecastTimelineSessionId = requestedSessionId;
       renderWeatherTimeline();
     }
@@ -1093,7 +1104,13 @@ function renderWeatherTimeline() {
   if (weatherPrecipitationOutlook?.slots?.length) blocks.push(renderPrecipitationRows());
   const html = blocks.filter(Boolean).join("");
   if (!html) {
-    weatherTimelineEl.textContent = "予報を取得できませんでした";
+    // The endpoint says why it has nothing, and the three reasons need different actions from
+    // the reader: start sending location, check whether the driver page is still running, or
+    // wait for JMA. Collapsing them into one message hid a stale phone as a weather outage.
+    weatherTimelineEl.textContent =
+      weatherForecastTimelineReason === "location_unavailable" ? "位置情報がまだ届いていません"
+        : weatherForecastTimelineReason === "location_stale" ? "位置情報が古いため予報を取得できません（ドライバー表示が動いているか確認してください）"
+          : "予報を取得できませんでした";
     return;
   }
   weatherTimelineEl.innerHTML = html;
