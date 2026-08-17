@@ -214,6 +214,15 @@ header {
 .weather-timeline-entry.raining { box-shadow: inset 3px 0 0 var(--accent-pitwall); }
 .weather-timeline-values.forecast { grid-template-columns: 1fr; }
 .weather-timeline-values.forecast .weather-timeline-value { font-size: clamp(1rem, 4.2vw, 1.25rem); }
+/* On a phone the page itself scrolls (see the max-width:700px block above, which drops `main` to
+   block layout), so the timeline has no container height to claim a share of. `flex: 1 1 0` gave
+   it a basis of 0 and no free space to grow into, and `overflow-y: auto` then clipped the lot:
+   nineteen entries sat in the DOM inside an element 0px tall. Let it take its content height and
+   scroll with the page, the same way the transcript and analysis panes do here.
+   This has to sit after the rule it overrides — a media query adds no specificity. */
+@media (max-width: 700px) {
+  .weather-timeline { flex: 0 0 auto; min-height: 0; overflow-y: visible; }
+}
 .weather-block-title { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 0; font-size: .95rem; letter-spacing: .04em; }
 .weather-block-title:first-child { margin-top: 0; }
 .weather-block-title span { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; }
