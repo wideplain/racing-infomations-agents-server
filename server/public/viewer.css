@@ -500,11 +500,20 @@ header {
      column's fixed parts (heading, playback row, current-weather strip) already eat about a
      third of it, so the ratios below are what is left to share, not the whole column. */
   #routeSection { gap: 8px; }
-  #routeSection #map { flex: 2.6 1 0; min-height: 190px; }
-  #routeHistoryDetails { flex: 1.2 1 0; min-height: 0; max-height: none; }
+  #routeSection #map { flex: 1.6 1 0; min-height: 170px; }
+  /* The largest share of what the map leaves. Its table carries a 30px header before the first
+     row, so anything under about 120px here shows a header and nothing else. */
+  #routeHistoryDetails { flex: 2.8 1 0; min-height: 130px; max-height: none; }
   #routeNamesDetails { flex: 1 1 0; min-height: 0; max-height: none; }
   /* A larger share than the pane it wraps, because it also carries the ルート更新 row. */
-  .route-passages { flex: 1.6 1 0; min-height: 0; }
+  .route-passages { flex: 1.2 1 0; min-height: 0; }
+
+  /* The current-conditions strip is fixed-height and was taking a fifth of the column while the
+     history below it had no room to show a single row. Same four readings and the same source
+     timestamps, just less air around them. */
+  #routeWeather { padding: 8px 10px; }
+  #routeWeather .route-weather-grid { gap: 6px; }
+  #routeWeather .route-weather-item { padding: 6px; }
 
   /* viewer.js never touches this element's `hidden`, so overriding the guard from style.css is
      safe here and keeps the heading free below 1024px. */

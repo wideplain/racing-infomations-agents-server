@@ -865,10 +865,15 @@ function onRouteDataChanged() {
 
   const minT = new Date(routeLoc[0].recorded_at).getTime() / 1000;
   const maxT = new Date(routeLoc[routeLoc.length - 1].recorded_at).getTime() / 1000;
+  // Whether the view was sitting on the newest point has to be read before `max` moves, or the
+  // comparison is against the bound we are about to overwrite. Without this the marker only ever
+  // followed the very first load: on every later poll the slider still held the previous max,
+  // which is neither "0" nor behind minT, so it stayed put while the track grew past it.
+  const wasFollowingLatest = routeSlider.value === routeSlider.max;
   routeSlider.min = String(Math.floor(minT));
   routeSlider.max = String(Math.ceil(maxT));
-  if (!routeSliderDragging && (routeSlider.value === "0" || Number(routeSlider.value) < minT)) {
-    routeSlider.value = routeSlider.max; // follow the newest point by default
+  if (!routeSliderDragging && (wasFollowingLatest || routeSlider.value === "0" || Number(routeSlider.value) < minT)) {
+    routeSlider.value = routeSlider.max; // follow the newest point unless the user scrubbed back
   }
   seekRouteToSliderValue();
   renderRouteHistory();
