@@ -223,6 +223,14 @@ header {
 @media (max-width: 700px) {
   .weather-timeline { flex: 0 0 auto; min-height: 0; overflow-y: visible; }
 }
+.weather-block { display: grid; align-content: start; gap: 8px; min-width: 0; }
+/* Below the pit breakpoint the weather screen owns the full page width, and stacking the two
+   blocks meant scrolling past a whole hour of five-minute steps to reach the probability. Side
+   by side, the rain nowcast and the chance of rain are read together. The pit layout keeps them
+   stacked: its weather column is about 270px wide, too narrow to split again. */
+@media (max-width: 1023px) {
+  .weather-timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
 .weather-block-title { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 0; font-size: .95rem; letter-spacing: .04em; }
 .weather-block-title:first-child { margin-top: 0; }
 .weather-block-title span { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; }
@@ -468,6 +476,35 @@ header {
 .maplibregl-ctrl-group button + button { border-top-color: var(--line); }
 .maplibregl-ctrl-group button span { filter: invert(1); }
 
+/* ── Route panes on a fixed-height screen (≥701px) ──────────────────────────
+   Above the mobile breakpoint the page no longer scrolls, so the route column has a definite
+   height to divide — but only the live screen was ever told to divide it. The route screen's two
+   <details> kept flex-basis auto, which left them at summary height with 区間時刻履歴 showing
+   16px of a 449px table. They now take a share of the column like the map does, and the map
+   keeps the largest one. The pit layout below re-tunes these for its narrower column. */
+@media (min-width: 701px) {
+  #routeSection #map { flex: 2 1 0; min-height: 220px; }
+  #routeHistoryDetails, #routeNamesDetails { flex: 1 1 0; min-height: 120px; max-height: none; }
+  .route-passages { flex: 1 1 0; min-height: 0; }
+}
+
+/* ── Mobile pane heights (≤700px) ───────────────────────────────────────────
+   At this width `main` goes block-level so the page itself scrolls, which leaves every pane
+   without a container height for `flex: 1 1 0` to take a share of: the scrollers collapsed to
+   nothing while holding their content. 文字起こし was 16px over 1898px of transcript, AI解析 was
+   0px over 28012px, and 区間時刻履歴 and 通過地点 were 16px each. They now take their content
+   height, capped so one long pane cannot push the next off the screen, and scroll inside that cap.
+
+   These have to sit after the .viewer-pane / .viewer-scroll rules they override, and after the
+   route screen's own max-height caps — a media query adds no specificity of its own. */
+@media (max-width: 700px) {
+  .viewer-pane::details-content { flex: 0 0 auto; }
+  .viewer-scroll { flex: 0 0 auto; max-height: 60vh; }
+  /* Capping the <details> instead of the scroller inside it clipped the pane with no way to
+     scroll what was cut off, because .viewer-pane hides its overflow. */
+  #routeHistoryDetails, #routeNamesDetails { max-height: none; }
+}
+
 /* ── Pit layout (≥1024px) ───────────────────────────────────────────────────
    Wide screens drop the tabs and show all three screens side by side, because the person on the
    pit wall wants the conversation, the car's position and the incoming rain in one glance rather
@@ -512,10 +549,18 @@ header {
   #routeSection #map { flex: 1.6 1 0; min-height: 170px; }
   /* The largest share of what the map leaves. Its table carries a 30px header before the first
      row, so anything under about 120px here shows a header and nothing else. */
-  #routeHistoryDetails { flex: 2.8 1 0; min-height: 130px; max-height: none; }
-  #routeNamesDetails { flex: 1 1 0; min-height: 0; max-height: none; }
+  #routeHistoryDetails { flex: 2.4 1 0; min-height: 130px; max-height: none; }
+  /* Its share of .route-passages is what is left after the ルート更新 row, which was leaving the
+     pane at summary height with the list itself 16px tall. The floor is a summary plus two rows. */
+  #routeNamesDetails { flex: 1 1 0; min-height: 62px; max-height: none; }
+
+  /* Four readings across a 414px column left "☀️ 降水なし" ellipsised at 82px of the 117px it
+     needs. Wrapping costs one line; going to two rows of two cost 64px of column height, which
+     came straight out of the history pane below. */
+  .route-weather-item strong { overflow: visible; white-space: normal; font-size: clamp(1rem, 1.5vw, 1.25rem); line-height: 1.15; }
+  .route-controls { gap: 6px; }
   /* A larger share than the pane it wraps, because it also carries the ルート更新 row. */
-  .route-passages { flex: 1.2 1 0; min-height: 0; }
+  .route-passages { flex: 1.6 1 0; min-height: 0; }
 
   /* The current-conditions strip is fixed-height and was taking a fifth of the column while the
      history below it had no room to show a single row. Same four readings and the same source

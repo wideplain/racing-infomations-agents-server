@@ -1059,9 +1059,13 @@ function renderNowcastRows() {
       </div>
     </article>`;
   }).join("");
-  return `<h3 class="weather-block-title">これからの雨 <span>5分ごと・1時間先まで</span></h3>
-    ${rows}
-    <p class="weather-timeline-source">気象庁 高解像度降水ナウキャスト · 基準 ${escapeHtml(baseTime)}</p>`;
+  // Wrapped so the two blocks can sit side by side rather than one below the other — reading the
+  // chance of rain should not mean scrolling past a whole hour of five-minute steps.
+  return `<section class="weather-block">
+      <h3 class="weather-block-title">これからの雨 <span>5分ごと・1時間先まで</span></h3>
+      ${rows}
+      <p class="weather-timeline-source">気象庁 高解像度降水ナウキャスト · 基準 ${escapeHtml(baseTime)}</p>
+    </section>`;
 }
 
 function renderPrecipitationRows() {
@@ -1088,9 +1092,11 @@ function renderPrecipitationRows() {
     </article>`;
   }).join("");
   const reported = outlook.reportedAt ? ` · ${escapeHtml(formatWeatherTime(outlook.reportedAt))}発表` : "";
-  return `<h3 class="weather-block-title">降水確率 <span>6時間ごと</span></h3>
-    ${rows}
-    <p class="weather-timeline-source">気象庁 府県天気予報 · ${escapeHtml(outlook.areaName)}${reported}</p>`;
+  return `<section class="weather-block">
+      <h3 class="weather-block-title">降水確率 <span>6時間ごと</span></h3>
+      ${rows}
+      <p class="weather-timeline-source">気象庁 府県天気予報 · ${escapeHtml(outlook.areaName)}${reported}</p>
+    </section>`;
 }
 
 function renderWeatherTimeline() {
