@@ -40,6 +40,9 @@ let precipitation = null;
 let weatherFetchedAt = 0;
 let locationWatchId = null;
 let locationBuffer = [];
+// The last point actually queued for upload — the distance gate measures from here, not from
+// the previous fix, so slow drift can never accumulate into a recorded point.
+let lastRecordedPoint = null;
 let locationSendInFlight = false;
 let lastAnalysisSignature = "";
 let lastSessionCheckAt = 0;
@@ -73,6 +76,9 @@ async function syncSession(force = false) {
   weather = null;
   snapshot = null;
   precipitation = null;
+  // A new session has no points yet, so the next fix must be recorded however little the car
+  // has moved — otherwise its weather stays unavailable until the 100 m gate happens to open.
+  lastRecordedPoint = null;
   weatherFetchedAt = 0;
   lastAnalysisSignature = "";
 }
@@ -227,6 +233,21 @@ function pointFromPosition(position) {
   return point;
 }
 
+// One point per 100 m of travel. The server keeps every point it is given, so recording each
+// GPS fix filled the table with near-identical rows whenever the car was not moving.
+const LOCATION_RECORD_DISTANCE_M = 100;
+// ...but a parked car must still report where it is, because the weather endpoints refuse a
+// location older than 10 minutes and the driver's weather strip would go blank exactly when
+// someone has time to look at it. Half that window keeps it fresh without filling the table.
+const LOCATION_RECORD_MAX_GAP_MS = 5 * 60 * 1000;
+
+function shouldRecord(point) {
+  if (!lastRecordedPoint) return true;
+  if (distanceMeters(lastRecordedPoint, point) >= LOCATION_RECORD_DISTANCE_M) return true;
+  const elapsed = new Date(point.recordedAt).getTime() - new Date(lastRecordedPoint.recordedAt).getTime();
+  return !Number.isFinite(elapsed) || elapsed >= LOCATION_RECORD_MAX_GAP_MS;
+}
+
 async function flushLocationBuffer() {
   if (locationSendInFlight || locationBuffer.length === 0 || !sessionId) return;
   const batch = locationBuffer.splice(0, 3);
@@ -245,7 +266,13 @@ function startLocationWatch() {
   if (locationWatchId !== null || !window.isSecureContext || !navigator.geolocation) return;
   locationWatchId = navigator.geolocation.watchPosition(
     (position) => {
-      locationBuffer.push(pointFromPosition(position));
+      // Every fix still goes through pointFromPosition: speed is derived from consecutive
+      // samples, and 100 m apart is far too coarse to derive it from. Only the recording is
+      // thinned out.
+      const point = pointFromPosition(position);
+      if (!shouldRecord(point)) return;
+      lastRecordedPoint = point;
+      locationBuffer.push(point);
       if (locationBuffer.length > 10) locationBuffer.shift();
       if (locationBuffer.length >= 3) flushLocationBuffer();
     },
