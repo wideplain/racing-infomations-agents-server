@@ -83,6 +83,12 @@ async function syncLatestSession() {
       analysesEl.innerHTML = "";
       setStatusSession();
       resetRouteSessionData();
+      // The pit layout starts both views at page load, before this first /api/sessions response
+      // has named a session — so their opening fetch returned immediately having done nothing.
+      // Kick whichever is on screen now that there is something to ask about, or the weather
+      // column sits on "位置情報を待っています" until its 60-second timer comes round.
+      if (!routeSection.hidden) startRouteView();
+      if (!weatherSection.hidden) startWeatherView();
     }
   } catch (err) {
     console.error(err);
@@ -644,6 +650,8 @@ let weatherPrecipitationOutlook = null;
 let weatherForecastTimelineSessionId = null;
 let weatherForecastTimelineFetchedAt = 0;
 let weatherForecastTimelineInFlight = false;
+// Why the last response carried no forecast, so the empty state can say something useful.
+let weatherForecastTimelineReason = null;
 
 function resetRouteSessionData() {
   routeLoc = [];
@@ -658,6 +666,7 @@ function resetRouteSessionData() {
   weatherPrecipitationOutlook = null;
   weatherForecastTimelineSessionId = null;
   weatherForecastTimelineFetchedAt = 0;
+  weatherForecastTimelineReason = null;
   routeSlider.value = "0";
   renderRouteHistory();
   renderWeatherTimeline();
@@ -740,6 +749,7 @@ async function refreshWeatherForecastTimeline(force = false) {
     if (requestedSessionId !== sessionId) return;
     weatherForecastTimeline = response.timeline || null;
     weatherPrecipitationOutlook = response.precipitation || null;
+    weatherForecastTimelineReason = response.reason || null;
     weatherForecastTimelineSessionId = requestedSessionId;
     weatherForecastTimelineFetchedAt = Date.now();
     renderWeatherTimeline();
@@ -748,6 +758,7 @@ async function refreshWeatherForecastTimeline(force = false) {
     if (requestedSessionId === sessionId) {
       weatherForecastTimeline = null;
       weatherPrecipitationOutlook = null;
+      weatherForecastTimelineReason = "request_failed";
       weatherForecastTimelineSessionId = requestedSessionId;
       renderWeatherTimeline();
     }
@@ -865,10 +876,15 @@ function onRouteDataChanged() {
 
   const minT = new Date(routeLoc[0].recorded_at).getTime() / 1000;
   const maxT = new Date(routeLoc[routeLoc.length - 1].recorded_at).getTime() / 1000;
+  // Whether the view was sitting on the newest point has to be read before `max` moves, or the
+  // comparison is against the bound we are about to overwrite. Without this the marker only ever
+  // followed the very first load: on every later poll the slider still held the previous max,
+  // which is neither "0" nor behind minT, so it stayed put while the track grew past it.
+  const wasFollowingLatest = routeSlider.value === routeSlider.max;
   routeSlider.min = String(Math.floor(minT));
   routeSlider.max = String(Math.ceil(maxT));
-  if (!routeSliderDragging && (routeSlider.value === "0" || Number(routeSlider.value) < minT)) {
-    routeSlider.value = routeSlider.max; // follow the newest point by default
+  if (!routeSliderDragging && (wasFollowingLatest || routeSlider.value === "0" || Number(routeSlider.value) < minT)) {
+    routeSlider.value = routeSlider.max; // follow the newest point unless the user scrubbed back
   }
   seekRouteToSliderValue();
   renderRouteHistory();
@@ -1043,9 +1059,13 @@ function renderNowcastRows() {
       </div>
     </article>`;
   }).join("");
-  return `<h3 class="weather-block-title">これからの雨 <span>5分ごと・1時間先まで</span></h3>
-    ${rows}
-    <p class="weather-timeline-source">気象庁 高解像度降水ナウキャスト · 基準 ${escapeHtml(baseTime)}</p>`;
+  // Wrapped so the two blocks can sit side by side rather than one below the other — reading the
+  // chance of rain should not mean scrolling past a whole hour of five-minute steps.
+  return `<section class="weather-block">
+      <h3 class="weather-block-title">これからの雨 <span>5分ごと・1時間先まで</span></h3>
+      ${rows}
+      <p class="weather-timeline-source">気象庁 高解像度降水ナウキャスト · 基準 ${escapeHtml(baseTime)}</p>
+    </section>`;
 }
 
 function renderPrecipitationRows() {
@@ -1072,9 +1092,11 @@ function renderPrecipitationRows() {
     </article>`;
   }).join("");
   const reported = outlook.reportedAt ? ` · ${escapeHtml(formatWeatherTime(outlook.reportedAt))}発表` : "";
-  return `<h3 class="weather-block-title">降水確率 <span>6時間ごと</span></h3>
-    ${rows}
-    <p class="weather-timeline-source">気象庁 府県天気予報 · ${escapeHtml(outlook.areaName)}${reported}</p>`;
+  return `<section class="weather-block">
+      <h3 class="weather-block-title">降水確率 <span>6時間ごと</span></h3>
+      ${rows}
+      <p class="weather-timeline-source">気象庁 府県天気予報 · ${escapeHtml(outlook.areaName)}${reported}</p>
+    </section>`;
 }
 
 function renderWeatherTimeline() {
@@ -1088,7 +1110,13 @@ function renderWeatherTimeline() {
   if (weatherPrecipitationOutlook?.slots?.length) blocks.push(renderPrecipitationRows());
   const html = blocks.filter(Boolean).join("");
   if (!html) {
-    weatherTimelineEl.textContent = "予報を取得できませんでした";
+    // The endpoint says why it has nothing, and the three reasons need different actions from
+    // the reader: start sending location, check whether the driver page is still running, or
+    // wait for JMA. Collapsing them into one message hid a stale phone as a weather outage.
+    weatherTimelineEl.textContent =
+      weatherForecastTimelineReason === "location_unavailable" ? "位置情報がまだ届いていません"
+        : weatherForecastTimelineReason === "location_stale" ? "位置情報が古いため予報を取得できません（ドライバー表示が動いているか確認してください）"
+          : "予報を取得できませんでした";
     return;
   }
   weatherTimelineEl.innerHTML = html;

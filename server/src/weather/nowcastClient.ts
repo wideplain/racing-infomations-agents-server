@@ -121,10 +121,13 @@ export function isPngPixelOpaque(png: Uint8Array, pixelX: number, pixelY: number
   return true; // RGB has no alpha channel.
 }
 
+/** The nowcast target times are UTC, despite JMA publishing everything else about these products
+ * in JST. Reading them as JST put every observation and forecast nine hours in the past, which
+ * showed up as a rain timeline whose every step was already "まもなく". */
 function jmaTimeToIso(value: string): string | null {
   const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(value);
   if (!match) return null;
-  return new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+09:00`).toISOString();
+  return new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`).toISOString();
 }
 
 export class JmaNowcastClient {

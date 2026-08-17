@@ -40,6 +40,9 @@ let precipitation = null;
 let weatherFetchedAt = 0;
 let locationWatchId = null;
 let locationBuffer = [];
+// The last point actually queued for upload — the distance gate measures from here, not from
+// the previous fix, so slow drift can never accumulate into a recorded point.
+let lastRecordedPoint = null;
 let locationSendInFlight = false;
 let lastAnalysisSignature = "";
 let lastSessionCheckAt = 0;
@@ -73,6 +76,9 @@ async function syncSession(force = false) {
   weather = null;
   snapshot = null;
   precipitation = null;
+  // A new session has no points yet, so the next fix must be recorded however little the car
+  // has moved — otherwise its weather stays unavailable until the 100 m gate happens to open.
+  lastRecordedPoint = null;
   weatherFetchedAt = 0;
   lastAnalysisSignature = "";
 }
@@ -208,34 +214,61 @@ function estimatedSpeedMps(previous, current) {
 function pointFromPosition(position) {
   const coords = position.coords;
   const sample = { lat: coords.latitude, lng: coords.longitude, recordedAtMs: position.timestamp };
+  const accuracyM = typeof coords.accuracy === "number" && Number.isFinite(coords.accuracy) ? coords.accuracy : null;
+  // A fix this vague cannot say where the car is, so it cannot say how fast it is going either.
+  // One 399 m reading mid-drive dropped the readout from 68 km/h to 8 km/h and left it there.
+  const speedIsTrustworthy = accuracyM === null || accuracyM <= SPEED_MAX_ACCURACY_M;
   const nativeSpeed = typeof coords.speed === "number" && Number.isFinite(coords.speed) && coords.speed >= 0
     ? coords.speed
     : null;
   const calculatedSpeed = nativeSpeed === null ? estimatedSpeedMps(previousSpeedSample, sample) : null;
   const speedMps = nativeSpeed ?? calculatedSpeed;
   previousSpeedSample = sample;
-  if (speedMps !== null) {
+  if (speedMps !== null && speedIsTrustworthy) {
     latestSpeedMps = speedMps;
     latestSpeedSource = nativeSpeed !== null ? "GPS" : "位置差から算出";
     renderSpeed();
   }
 
   const point = { lat: coords.latitude, lng: coords.longitude, recordedAt: new Date(position.timestamp).toISOString() };
-  if (typeof coords.accuracy === "number" && !Number.isNaN(coords.accuracy)) point.accuracyM = coords.accuracy;
-  if (speedMps !== null) point.speedMps = speedMps;
+  if (accuracyM !== null) point.accuracyM = accuracyM;
+  // Storing a speed we would not show would put the same wrong number into 区間時刻履歴's average.
+  if (speedMps !== null && speedIsTrustworthy) point.speedMps = speedMps;
   if (typeof coords.heading === "number" && !Number.isNaN(coords.heading)) point.bearingDeg = coords.heading;
   return point;
 }
 
+// One point per 100 m of travel. The server keeps every point it is given, so recording each
+// GPS fix filled the table with near-identical rows whenever the car was not moving.
+const LOCATION_RECORD_DISTANCE_M = 100;
+// ...but a parked car must still report where it is, because the weather endpoints refuse a
+// location older than 10 minutes and the driver's weather strip would go blank exactly when
+// someone has time to look at it. Half that window keeps it fresh without filling the table.
+const LOCATION_RECORD_MAX_GAP_MS = 5 * 60 * 1000;
+const SPEED_MAX_ACCURACY_M = 50;
+// Each buffered point is now 100 m of road rather than one of many fixes a few metres apart, so
+// losing one leaves a visible hole in the track. Hold roughly 6 km of travel across a tunnel or a
+// dead spot, and hand the server as many as it accepts per request instead of three at a time.
+const LOCATION_BUFFER_MAX = 60;
+const LOCATION_BATCH_MAX = 50;
+
+function shouldRecord(point) {
+  if (!lastRecordedPoint) return true;
+  if (distanceMeters(lastRecordedPoint, point) >= LOCATION_RECORD_DISTANCE_M) return true;
+  const elapsed = new Date(point.recordedAt).getTime() - new Date(lastRecordedPoint.recordedAt).getTime();
+  return !Number.isFinite(elapsed) || elapsed >= LOCATION_RECORD_MAX_GAP_MS;
+}
+
 async function flushLocationBuffer() {
   if (locationSendInFlight || locationBuffer.length === 0 || !sessionId) return;
-  const batch = locationBuffer.splice(0, 3);
+  const batch = locationBuffer.splice(0, LOCATION_BATCH_MAX);
   locationSendInFlight = true;
   try {
     await api(`/api/sessions/${sessionId}/locations`, { method: "POST", body: JSON.stringify({ locations: batch }) });
   } catch (error) {
     console.warn("driver location send failed", error);
-    locationBuffer = [...batch, ...locationBuffer].slice(0, 10);
+    // Oldest first: on a long outage the start of the gap is the part the track cannot infer.
+    locationBuffer = [...batch, ...locationBuffer].slice(0, LOCATION_BUFFER_MAX);
   } finally {
     locationSendInFlight = false;
   }
@@ -245,9 +278,16 @@ function startLocationWatch() {
   if (locationWatchId !== null || !window.isSecureContext || !navigator.geolocation) return;
   locationWatchId = navigator.geolocation.watchPosition(
     (position) => {
-      locationBuffer.push(pointFromPosition(position));
-      if (locationBuffer.length > 10) locationBuffer.shift();
-      if (locationBuffer.length >= 3) flushLocationBuffer();
+      // Every fix still goes through pointFromPosition: speed is derived from consecutive
+      // samples, and 100 m apart is far too coarse to derive it from. Only the recording is
+      // thinned out.
+      const point = pointFromPosition(position);
+      if (!shouldRecord(point)) return;
+      lastRecordedPoint = point;
+      locationBuffer.push(point);
+      if (locationBuffer.length > LOCATION_BUFFER_MAX) locationBuffer.shift();
+      // Every point is 100 m of progress now, so send it rather than waiting for two more.
+      flushLocationBuffer();
     },
     (error) => console.warn("driver location unavailable", error),
     { enableHighAccuracy: true, maximumAge: 10_000, timeout: 15_000 }

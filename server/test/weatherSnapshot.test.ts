@@ -134,12 +134,13 @@ describe("JMA current-weather clients", () => {
     }) as unknown as typeof fetch;
     const client = new JmaNowcastClient({ fetchFn });
 
+    // JMA publishes these target times in UTC, so 20260816100000 is 10:00Z and not 10:00 JST.
     await expect(client.getRainTimeline(35.681236, 139.767125)).resolves.toMatchObject({
-      baseTime: "2026-08-16T00:55:00.000Z",
+      baseTime: "2026-08-16T09:55:00.000Z",
       points: [
-        { validAt: "2026-08-16T01:00:00.000Z", isRaining: false },
-        { validAt: "2026-08-16T01:05:00.000Z", isRaining: false },
-        { validAt: "2026-08-16T01:10:00.000Z", isRaining: false },
+        { validAt: "2026-08-16T10:00:00.000Z", isRaining: false },
+        { validAt: "2026-08-16T10:05:00.000Z", isRaining: false },
+        { validAt: "2026-08-16T10:10:00.000Z", isRaining: false },
       ],
     });
     await client.getRainTimeline(35.681236, 139.767125);
