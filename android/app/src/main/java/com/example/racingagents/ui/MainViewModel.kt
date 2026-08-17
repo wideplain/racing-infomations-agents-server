@@ -43,6 +43,9 @@ data class AnalysisEntry(
     val errorMessage: String? = null,
     /** The free-text note attached when this run was triggered, if any (manual runs only). */
     val instruction: String? = null,
+    /** Which analyze() mode produced this entry ("default"/"pitwall"/"driver"/"question"), so the
+     * UI can tell a question entry apart from a note-attached normal analysis. */
+    val mode: String = "default",
 )
 
 /** A transcript line, colored dark once [synced] (server confirmed) vs gray while pending upload.
@@ -359,6 +362,16 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    /** Fires a single "question" mode analysis carrying [question] as the instruction, so a pit
+     * crew member can ask the AI something and get a direct answer instead of a periodic report.
+     * Unlike [runAnalysis], this never also fires the "driver" mode run — that fan-out exists to
+     * feed the web viewer's driver HUD with short status summaries, which a one-off question
+     * answer has nothing to do with. */
+    fun askQuestion(question: String) {
+        if (question.isBlank()) return
+        launchAnalysis("question", AnalysisTrigger.MANUAL, question)
+    }
+
     /** Fires a single analyze() request in [mode] and polls it to completion, appending its own
      * timestamped entry to analysisHistory. See [runAnalysis] for why this can be called more
      * than once per user-facing "AI解析" trigger. */
@@ -374,7 +387,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
         val cleanedInstruction = instruction?.trim()?.ifBlank { null }
         _uiState.update {
             it.copy(analysisHistory = it.analysisHistory + AnalysisEntry(
-                localId, requestedAt, AnalysisStatus.QUEUED, trigger = trigger, instruction = cleanedInstruction,
+                localId, requestedAt, AnalysisStatus.QUEUED, trigger = trigger, instruction = cleanedInstruction, mode = mode,
             ))
         }
 

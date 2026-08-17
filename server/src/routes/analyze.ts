@@ -16,10 +16,21 @@ import {
   buildPrompt,
   buildPitwallPrompt,
   buildDriverPrompt,
+  buildQuestionPrompt,
+  transcriptStamps,
   type PitwallDecision,
+  type PriorRecord,
 } from "../analysis/prompt.js";
-import { parsePitwallAnalysis, parseDriverAnalysis } from "../analysis/parse.js";
-import { PITWALL_SCHEMA_PATH, DRIVER_SCHEMA_PATH } from "../ai/codexProvider.js";
+import {
+  parsePitwallAnalysis,
+  parseDriverAnalysis,
+  parseQuestionAnalysis,
+} from "../analysis/parse.js";
+import {
+  PITWALL_SCHEMA_PATH,
+  DRIVER_SCHEMA_PATH,
+  QUESTION_SCHEMA_PATH,
+} from "../ai/codexProvider.js";
 import {
   getSession,
   listSegmentsForAnalysis,
@@ -33,15 +44,22 @@ import {
 
 const WEATHER_LOCATION_MAX_AGE_MS = 10 * 60 * 1000;
 
-type AnalyzeMode = "default" | "pitwall" | "driver";
+type AnalyzeMode = "default" | "pitwall" | "driver" | "question";
 
 function isAnalyzeMode(value: unknown): value is AnalyzeMode {
-  return value === "default" || value === "pitwall" || value === "driver";
+  return (
+    value === "default" || value === "pitwall" || value === "driver" || value === "question"
+  );
 }
 
 interface PreparedPrompt {
   prompt: string;
   schemaPath?: string;
+  /** Question mode only: the crew's question, kept so the stored result can carry it. */
+  question?: string;
+  /** Question mode only: the [mm:ss] stamps this prompt actually showed the model, so a cited
+   * one can be checked against a line that exists rather than merely arithmetically resolved. */
+  transcriptStamps?: ReadonlySet<string>;
 }
 
 interface PromptSegmentInput {
@@ -51,7 +69,8 @@ interface PromptSegmentInput {
 }
 
 /** Builds the prompt + schema for one mode. Prior analyses of the *same* mode are fed back in as
- * "these are the notes so far" context, so each mode's history stays self-consistent. */
+ * "these are the notes so far" context, so each mode's history stays self-consistent. Question
+ * mode is the exception — see its branch below. */
 function preparePrompt(
   db: DB,
   sessionId: string,
@@ -96,16 +115,70 @@ function preparePrompt(
       schemaPath: DRIVER_SCHEMA_PATH,
     };
   }
+  if (mode === "question") {
+    // The one mode that does not feed on its own history alone. A crew member asking "さっき
+    // 出ていた提案の件だけど" is following up on something a pitwall run said, and a context built
+    // only from past questions and answers can never reach it.
+    const records: PriorRecord[] = [
+      ...listRecentAnalyses(db, sessionId, { mode: "pitwall", status: "done", limit: 5 }).map(
+        (a) => {
+          const parsed = a.result_json ? JSON.parse(a.result_json) : {};
+          return {
+            createdAt: a.created_at,
+            label: "ピットウォール",
+            text: `状況: ${parsed.statusSummary ?? ""} / 提案: ${parsed.proposal ?? ""}`,
+          };
+        }
+      ),
+      ...listRecentAnalyses(db, sessionId, { mode: "question", status: "done", limit: 5 }).map(
+        (a) => {
+          const parsed = a.result_json ? JSON.parse(a.result_json) : {};
+          return {
+            createdAt: a.created_at,
+            label: "質問",
+            text: `Q: ${parsed.asked ?? ""} / A: ${parsed.answer ?? ""}`,
+          };
+        }
+      ),
+    ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const question = (instruction ?? "").trim();
+    const prompt = buildQuestionPrompt(segments, sessionStartedAt, records, { question });
+    return {
+      prompt,
+      schemaPath: QUESTION_SCHEMA_PATH,
+      question,
+      transcriptStamps: transcriptStamps(prompt),
+    };
+  }
   return { prompt: buildPrompt(segments, sessionStartedAt, { instruction }) };
 }
 
 function serializeResult(
   mode: AnalyzeMode,
   result: Awaited<ReturnType<AIProvider["analyze"]>>,
+  context: {
+    sessionStartedAt: string;
+    question?: string;
+    transcriptStamps?: ReadonlySet<string>;
+  },
   rainForecast?: RainForecast,
   weatherForecast?: WeatherForecast
 ): string {
   if (mode === "pitwall") return JSON.stringify(parsePitwallAnalysis(result.rawOutput));
+  if (mode === "question") {
+    // The question itself is stored alongside the answer rather than left in the prompt column:
+    // the viewer shows a timeline of results to someone who never saw the request, and an answer
+    // with no visible question is unreadable there. It also lets a later question's context show
+    // what was already asked.
+    return JSON.stringify({
+      asked: context.question ?? "",
+      ...parseQuestionAnalysis(
+        result.rawOutput,
+        context.sessionStartedAt,
+        context.transcriptStamps ?? new Set()
+      ),
+    });
+  }
   if (mode === "driver") {
     return JSON.stringify({
       ...parseDriverAnalysis(result.rawOutput),
@@ -137,6 +210,7 @@ function enqueueAnalysis(
     weather: WeatherProvider;
   },
   sessionId: string,
+  sessionStartedAt: string,
   mode: AnalyzeMode,
   prepared: PreparedPrompt,
   location: { lat: number; lng: number } | undefined
@@ -185,7 +259,17 @@ function enqueueAnalysis(
         updateAnalysis(db, analysis.id, {
           status: "done",
           raw_output: result.rawOutput,
-          result_json: serializeResult(mode, result, rainForecast, weatherForecast),
+          result_json: serializeResult(
+            mode,
+            result,
+            {
+              sessionStartedAt,
+              question: prepared.question,
+              transcriptStamps: prepared.transcriptStamps,
+            },
+            rainForecast,
+            weatherForecast
+          ),
           duration_ms: result.durationMs,
         });
       } catch (err) {
@@ -338,6 +422,12 @@ export function registerAnalyzeRoutes(
       if (instruction !== undefined && typeof instruction !== "string") {
         return reply.code(400).send({ error: "invalid_instruction" });
       }
+      // In the reporting modes an instruction is an optional aside; in question mode it carries
+      // the question, so an empty one has nothing to answer. Rejecting it here costs the caller a
+      // fast 400 instead of a two-minute codex run that returns "記録にありません" to no question.
+      if (mode === "question" && !instruction?.trim()) {
+        return reply.code(400).send({ error: "question_required" });
+      }
       const location = request.body?.location;
       if (location !== undefined) {
         const validLat =
@@ -353,7 +443,11 @@ export function registerAnalyzeRoutes(
       // the requested mode's detailed analysis, plus a short driver-mode one stored separately.
       // The web viewer's driver display then just switches which entries it shows, instead of
       // having to compress a long analysis client-side. Costs a second codex run per request.
-      const alsoDriver = request.body?.alsoDriver === true && mode !== "driver";
+      // Never fans out for question mode: the crew is sitting there waiting on an answer, and the
+      // queue is serial, so a second codex run would put a HUD brief nobody asked for in front of
+      // the thing they did ask for.
+      const alsoDriver =
+        request.body?.alsoDriver === true && mode !== "driver" && mode !== "question";
 
       const segments = listSegmentsForAnalysis(db, request.params.id).map((s) => ({
         clientSeq: s.client_seq,
@@ -377,9 +471,16 @@ export function registerAnalyzeRoutes(
       let analysisId: string;
       let driverAnalysisId: string | undefined;
       try {
-        analysisId = enqueueAnalysis(deps, session.id, mode, prepared, location);
+        analysisId = enqueueAnalysis(deps, session.id, session.started_at, mode, prepared, location);
         if (preparedDriver) {
-          driverAnalysisId = enqueueAnalysis(deps, session.id, "driver", preparedDriver, location);
+          driverAnalysisId = enqueueAnalysis(
+            deps,
+            session.id,
+            session.started_at,
+            "driver",
+            preparedDriver,
+            location
+          );
         }
       } catch (err) {
         if (err instanceof QueueFullError) {

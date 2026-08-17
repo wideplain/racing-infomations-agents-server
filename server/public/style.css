@@ -21,6 +21,7 @@
   --warn: #ff5d5d;
   --accent-pitwall: #ff5d3d;
   --accent-driver: #4bd99a;
+  --accent-question: #5b8cff;
   --tl-urgency-medium: #ffba58;
   --tl-urgency-high: #ff5d5d;
   --pane-radius: 12px;
@@ -215,6 +216,7 @@ a { color: var(--accent-driver); }
 }
 .analysis-entry .entry-mode.pitwall { background: var(--accent-pitwall); color: #151a22; }
 .analysis-entry .entry-mode.driver { background: var(--accent-driver); color: #102018; }
+.analysis-entry .entry-mode.question { background: var(--accent-question); color: #0d1626; }
 .analysis-entry h4 { margin: 8px 0 2px; font-size: 0.9rem; }
 .analysis-entry p { margin: 2px 0; }
 .analysis-entry ul { margin: 2px 0; padding-left: 1.2em; }

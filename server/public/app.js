@@ -295,8 +295,8 @@ function renderAnalyses(list) {
 function renderAnalysisEntry(a) {
   const time = new Date(a.created_at).toLocaleTimeString("ja-JP");
   const modeLabel =
-    a.mode === "pitwall" ? "ピットウォール" : a.mode === "driver" ? "ドライバー" : "通常";
-  const modeClass = a.mode === "pitwall" ? "pitwall" : a.mode === "driver" ? "driver" : "";
+    a.mode === "pitwall" ? "ピットウォール" : a.mode === "driver" ? "ドライバー" : a.mode === "question" ? "質問応答" : "通常";
+  const modeClass = a.mode === "pitwall" ? "pitwall" : a.mode === "driver" ? "driver" : a.mode === "question" ? "question" : "";
 
   let body;
   if (a.status === "queued") body = `<p class="status-queued">解析待ち…</p>`;
@@ -308,7 +308,9 @@ function renderAnalysisEntry(a) {
         ? renderPitwall(a.result)
         : a.mode === "driver"
           ? renderDriver(a.result)
-          : renderDefault(a.result);
+          : a.mode === "question"
+            ? renderQuestion(a.result)
+            : renderDefault(a.result);
   } else body = `<p>結果なし</p>`;
 
   return `<div class="analysis-entry">
@@ -356,6 +358,36 @@ function renderDriver(r) {
   `;
 }
 
+function renderQuestion(r) {
+  // The viewer is read-only, so whoever sees this result never saw the request that produced
+  // it — without the question on screen, the answer below is unreadable out of context. A
+  // missing `asked` means an old/malformed row, not a real blank, so render nothing for it
+  // rather than an empty "質問" heading.
+  const asked = r.asked && String(r.asked).trim()
+    ? `<h4>質問</h4><p>${escapeHtml(r.asked)}</p>`
+    : "";
+  // A null clock means the server could not match the cited stamp to any line it showed the
+  // model, so the quote can't be looked up in the log — which is exactly what the crew is
+  // supposed to do with it before relaying it. Say so rather than printing a bare number.
+  const basedOn = (r.basedOn || [])
+    .map((b) => {
+      const when = b.clock
+        ? escapeHtml(b.clock)
+        : `${escapeHtml(b.at || "-")}<span class="warn">（ログと一致せず）</span>`;
+      return `<li>${when} 「${escapeHtml(b.quote || "-")}」</li>`;
+    })
+    .join("");
+  const unknown = (r.unknown || []).map((x) => `<li>${escapeHtml(x)}</li>`).join("");
+  const confidenceLabel = { low: "低", medium: "中", high: "高" }[r.confidence] || r.confidence;
+  return `
+    ${asked}
+    <h4>回答</h4><p>${escapeHtml(r.answer || "-")}</p>
+    <h4>根拠</h4><ul>${basedOn}</ul>
+    ${r.unknown && r.unknown.length ? `<h4 class="warn">記録にない点</h4><ul class="warn">${unknown}</ul>` : ""}
+    <p>信頼度: ${escapeHtml(confidenceLabel || "-")}</p>
+  `;
+}
+
 // ── Text injection ───────────────────────────────────────────────────────────
 segmentForm.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -387,17 +419,35 @@ async function sendSegments() {
 
 // ── Analyze ──────────────────────────────────────────────────────────────────
 // The server ignores alsoDriver when the requested mode is already driver; grey it out so the
-// checkbox never looks like it's doing something it isn't.
+// checkbox never looks like it's doing something it isn't. A driver HUD brief paired with a
+// question makes no sense either, so question mode greys it out too.
 function syncAlsoDriver() {
-  alsoDriver.disabled = analyzeMode.value === "driver";
+  alsoDriver.disabled = analyzeMode.value === "driver" || analyzeMode.value === "question";
 }
 analyzeMode.addEventListener("change", syncAlsoDriver);
 syncAlsoDriver();
+
+// In question mode 追加指示 stops being optional — it IS the question — so say so. The box is
+// also cleared on every mode switch: a leftover note silently becoming the next run's question
+// (or a leftover question becoming a note) is the kind of mix-up that only shows up in the
+// result.
+function syncInstructionField() {
+  analyzeInstruction.placeholder = analyzeMode.value === "question" ? "質問を入力（必須）" : "追加指示（任意）";
+  analyzeInstruction.value = "";
+}
+analyzeMode.addEventListener("change", syncInstructionField);
+syncInstructionField();
 
 analyzeBtn.addEventListener("click", () =>
   guard(async () => {
     if (!currentSessionId) return;
     const instruction = analyzeInstruction.value.trim();
+    // The server 400s on a blank instruction in question mode; catch it here so the failure
+    // reads as guidance in the status line instead of an error banner from a round trip.
+    if (analyzeMode.value === "question" && !instruction) {
+      analyzeStatus.textContent = "質問を入力してください";
+      return;
+    }
     analyzeStatus.textContent = "解析を投入中…";
     await api(`/api/sessions/${currentSessionId}/analyze`, {
       method: "POST",

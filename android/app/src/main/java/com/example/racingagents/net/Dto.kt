@@ -51,6 +51,16 @@ data class AnalyzeResponse(
     val analysisId: String,
 )
 
+/** One quote backing a question-mode answer, so the crew can verify the driver actually said it
+ * before relaying it over the phone. [clock] is the server-computed wall-clock time and may be
+ * null when unparseable; fall back to [at] (the transcript's raw elapsed mm:ss stamp) then. */
+@Serializable
+data class BasedOnEntry(
+    val at: String,
+    val clock: String? = null,
+    val quote: String,
+)
+
 @Serializable
 data class AnalysisResultDto(
     val summary: String? = null,
@@ -81,6 +91,10 @@ data class AnalysisResultDto(
     /** Optional JMA weather forecast, including clear conditions when rain is not expected. */
     val forecastEtaMinutes: Int? = null,
     val forecastWeather: String? = null,
+    // Question-mode-only fields (null/empty in other modes).
+    val answer: String? = null,
+    val basedOn: List<BasedOnEntry> = emptyList(),
+    val unknown: List<String> = emptyList(),
 ) {
     /** Renders [confidence] for display regardless of whether it came in as a number
      * (default mode, e.g. 0.78 -> "78%") or a low/medium/high string (pitwall mode -> 低/中/高). */

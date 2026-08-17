@@ -175,7 +175,7 @@ export function registerSessionRoutes(
     }
   );
 
-  // Read-only viewer support: the whole analysis timeline for a session (both modes, all
+  // Read-only viewer support: the whole analysis timeline for a session (every mode, all
   // statuses), independent of the app's local manual/auto distinction which never reaches
   // the server.
   app.get<{ Params: { id: string } }>(

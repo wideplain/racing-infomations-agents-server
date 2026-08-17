@@ -12,6 +12,7 @@ const SCRATCH_DIR = join(SERVER_ROOT, "scratch");
 const SCHEMA_PATH = join(SERVER_ROOT, "schemas", "analysis.schema.json");
 export const PITWALL_SCHEMA_PATH = join(SERVER_ROOT, "schemas", "pitwall.schema.json");
 export const DRIVER_SCHEMA_PATH = join(SERVER_ROOT, "schemas", "driver.schema.json");
+export const QUESTION_SCHEMA_PATH = join(SERVER_ROOT, "schemas", "question.schema.json");
 
 export interface CodexProviderOptions {
   codexBin?: string;

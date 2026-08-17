@@ -3,6 +3,8 @@ package com.example.racingagents.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,6 +70,7 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     var editingLine by remember { mutableStateOf<TranscriptLine?>(null) }
     var showInstructionDialog by remember { mutableStateOf(false) }
+    var showQuestionDialog by remember { mutableStateOf(false) }
     var transcriptExpanded by remember { mutableStateOf(true) }
     var showNewSessionConfirm by remember { mutableStateOf(false) }
     var showQrDialog by remember { mutableStateOf(false) }
@@ -144,11 +147,22 @@ fun MainScreen(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Three chips no longer fit across a phone at this text size, and a chip pushed
+                // off the right edge is a chip the crew can't reach mid-session, so the row
+                // scrolls sideways rather than clipping.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                ) {
                     if (uiState.sessionId != null) {
                         AssistChip(
                             onClick = { showInstructionDialog = true },
                             label = { Text("📝 メモを添えて解析") },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        AssistChip(
+                            onClick = { showQuestionDialog = true },
+                            label = { Text("❓ 質問する") },
                         )
                         Spacer(Modifier.width(8.dp))
                     }
@@ -325,6 +339,16 @@ fun MainScreen(
         )
     }
 
+    if (showQuestionDialog) {
+        QuestionDialog(
+            onSubmit = { question ->
+                viewModel.askQuestion(question)
+                showQuestionDialog = false
+            },
+            onDismiss = { showQuestionDialog = false },
+        )
+    }
+
     if (showNewSessionConfirm) {
         AlertDialog(
             onDismissRequest = { showNewSessionConfirm = false },
@@ -434,6 +458,38 @@ private fun InstructionDialog(
         },
         confirmButton = {
             TextButton(onClick = { onSubmit(text) }) { Text("解析する") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("キャンセル") }
+        },
+    )
+}
+
+/** Opened via the "❓ 質問する" chip: the pit crew's fast path to ask the AI something about the
+ * accumulated conversation and relay the answer to the driver by phone (the driver never touches
+ * a screen), instead of waiting on the next periodic report. A few lines of room, unlike
+ * [InstructionDialog]'s single line, since a real question runs longer than a short note. */
+@Composable
+private fun QuestionDialog(
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("質問する") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("AIへの質問") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { if (text.isNotBlank()) onSubmit(text) }, enabled = text.isNotBlank()) { Text("質問する") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("キャンセル") }

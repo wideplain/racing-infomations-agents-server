@@ -377,12 +377,21 @@ export function listRecentAnalyses(
     .all(sessionId, opts.mode, opts.status, opts.limit) as Analysis[];
 }
 
-/** All analyses for a session regardless of mode/status, oldest first — for the read-only
- * viewer page, which renders a single timeline rather than filtering like the app does. */
+/** The most recent `limit` analyses for a session regardless of mode/status, returned oldest
+ * first — for the read-only viewer page, which renders a single timeline rather than filtering
+ * like the app does.
+ *
+ * The inner query orders DESC so the cap keeps the *newest* rows; a plain `ASC LIMIT` kept the
+ * oldest ones instead, which froze every reader on the first 100 analyses of a long session
+ * (auto-analysis with the driver fan-out reaches 100 in well under an hour). The outer ordering
+ * restores oldest-first, which is the order the viewer, the テキストテスト page and the driver
+ * screen all expect. */
 export function listAnalysesForSession(db: DB, sessionId: string, limit = 100): Analysis[] {
   return db
     .prepare(
-      `SELECT * FROM analyses WHERE session_id = ? ORDER BY created_at ASC LIMIT ?`
+      `SELECT * FROM (
+         SELECT * FROM analyses WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
+       ) ORDER BY created_at ASC, id ASC`
     )
     .all(sessionId, limit) as Analysis[];
 }
