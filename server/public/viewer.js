@@ -89,6 +89,7 @@ async function syncLatestSession() {
       // column sits on "位置情報を待っています" until its 60-second timer comes round.
       if (!routeSection.hidden) startRouteView();
       if (!weatherSection.hidden) startWeatherView();
+      if (pitLayout) capturePitLocation();
     }
   } catch (err) {
     console.error(err);
@@ -594,6 +595,42 @@ function applyViewMode() {
   // Both are already guarded against a second setInterval, so re-entering is harmless.
   startRouteView();
   startWeatherView();
+  startPitLocationWatch();
+}
+
+// ── Pit location for weather ────────────────────────────────────────────────
+// This screen runs in the pit, not the car, so weather should reflect where the crew is
+// standing rather than the car's GPS track. Unlike the driver page's watchPosition, the pit
+// does not move: a plain getCurrentPosition every few minutes is enough to stay inside the
+// server's 10-minute weather-location freshness window.
+const PIT_LOCATION_REFRESH_MS = 3 * 60 * 1000;
+let pitLocationWatchStarted = false;
+
+function capturePitLocation() {
+  if (!sessionId || !window.isSecureContext || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const body = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracyM: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined,
+        recordedAt: new Date(position.timestamp).toISOString(),
+      };
+      if (!sessionId) return; // the session may have changed while the fix was pending
+      api(`/api/sessions/${sessionId}/pit-location`, { method: "POST", body: JSON.stringify(body) }).catch(
+        (error) => console.warn("pit location send failed", error)
+      );
+    },
+    (error) => console.warn("pit location unavailable", error),
+    { enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000 }
+  );
+}
+
+function startPitLocationWatch() {
+  if (pitLocationWatchStarted) return;
+  pitLocationWatchStarted = true;
+  capturePitLocation();
+  setInterval(capturePitLocation, PIT_LOCATION_REFRESH_MS);
 }
 
 // ── Route / time view ───────────────────────────────────────────────────────

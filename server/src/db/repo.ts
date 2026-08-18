@@ -54,6 +54,15 @@ export interface LocationRow {
   created_at: string;
 }
 
+export interface PitLocationRow {
+  session_id: string;
+  lat: number;
+  lng: number;
+  accuracy_m: number | null;
+  recorded_at: string;
+  created_at: string;
+}
+
 export interface WeatherSnapshotRow {
   id: number;
   session_id: string;
@@ -232,6 +241,28 @@ export function getLatestLocation(db: DB, sessionId: string): LocationRow | unde
   return db
     .prepare(`SELECT * FROM locations WHERE session_id = ? ORDER BY id DESC LIMIT 1`)
     .get(sessionId) as LocationRow | undefined;
+}
+
+/** The pit does not move, so this is an upsert (one row per session) rather than a track like
+ * `locations` — a fresh report just replaces the last one. */
+export function setPitLocation(
+  db: DB,
+  sessionId: string,
+  point: { lat: number; lng: number; accuracyM?: number; recordedAt: string }
+): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO pit_locations (session_id, lat, lng, accuracy_m, recorded_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       lat = excluded.lat, lng = excluded.lng, accuracy_m = excluded.accuracy_m, recorded_at = excluded.recorded_at`
+  ).run(sessionId, point.lat, point.lng, point.accuracyM ?? null, point.recordedAt, now);
+}
+
+export function getPitLocation(db: DB, sessionId: string): PitLocationRow | undefined {
+  return db
+    .prepare(`SELECT * FROM pit_locations WHERE session_id = ?`)
+    .get(sessionId) as PitLocationRow | undefined;
 }
 
 export function listLocations(

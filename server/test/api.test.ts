@@ -789,6 +789,112 @@ describe("API", () => {
     expect(body.prompt as string).toContain("(天気情報なし)");
   });
 
+  it("stores a pit location and rejects invalid payloads or an unknown session", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    const okRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/pit-location`,
+      headers: authHeaders(),
+      payload: { lat: 32.8, lng: 130.7, recordedAt: new Date().toISOString() },
+    });
+    expect(okRes.statusCode).toBe(204);
+
+    const badRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/pit-location`,
+      headers: authHeaders(),
+      payload: { lat: 999, lng: 130.7, recordedAt: new Date().toISOString() },
+    });
+    expect(badRes.statusCode).toBe(400);
+
+    const missingRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions/does-not-exist/pit-location",
+      headers: authHeaders(),
+      payload: { lat: 32.8, lng: 130.7, recordedAt: new Date().toISOString() },
+    });
+    expect(missingRes.statusCode).toBe(404);
+  });
+
+  it("prefers the pit's reported location over the car's GPS for weather", async () => {
+    fakeWeather.result = {
+      summaryText: "南部: 曇り",
+      fetchedAt: new Date().toISOString(),
+      source: "jma",
+    };
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: { locations: [{ lat: 32.8, lng: 130.7, recordedAt: new Date().toISOString() }] },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/pit-location`,
+      headers: authHeaders(),
+      payload: { lat: 35.0, lng: 135.0, recordedAt: new Date().toISOString() },
+    });
+
+    const weatherRes = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather`,
+      headers: authHeaders(),
+    });
+    expect(weatherRes.statusCode).toBe(200);
+    expect(weatherRes.json().snapshot).toMatchObject({ latitude: 35.0, longitude: 135.0 });
+  });
+
+  it("falls back to the car's GPS for weather when the pit's location is stale", async () => {
+    fakeWeather.result = {
+      summaryText: "南部: 曇り",
+      fetchedAt: new Date().toISOString(),
+      source: "jma",
+    };
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/pit-location`,
+      headers: authHeaders(),
+      payload: { lat: 35.0, lng: 135.0, recordedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/locations`,
+      headers: authHeaders(),
+      payload: { locations: [{ lat: 32.8, lng: 130.7, recordedAt: new Date().toISOString() }] },
+    });
+
+    const weatherRes = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/weather`,
+      headers: authHeaders(),
+    });
+    expect(weatherRes.statusCode).toBe(200);
+    expect(weatherRes.json().snapshot).toMatchObject({ latitude: 32.8, longitude: 130.7 });
+  });
+
   it("rejects an invalid location", async () => {
     const createRes = await app.inject({
       method: "POST",
