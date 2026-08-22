@@ -39,10 +39,38 @@ import {
   updateAnalysis,
   listRecentAnalyses,
   getLatestLocation,
+  getPitLocation,
   getLatestWeatherSnapshot,
 } from "../db/repo.js";
 
 const WEATHER_LOCATION_MAX_AGE_MS = 10 * 60 * 1000;
+
+interface WeatherLocation {
+  lat: number;
+  lng: number;
+  recorded_at: string;
+}
+
+function isFreshLocation(location: WeatherLocation | undefined): location is WeatherLocation {
+  if (!location) return false;
+  const ageMs = Date.now() - new Date(location.recorded_at).getTime();
+  return Number.isFinite(ageMs) && ageMs <= WEATHER_LOCATION_MAX_AGE_MS;
+}
+
+/** The pit crew's own screen (see /sessions/:id/pit-location) is a better weather location than
+ * the car's GPS track — the crew cares about conditions where they are standing, not wherever
+ * the car happens to be on a lap. Fall back to the car's latest fix if the pit hasn't reported
+ * one (e.g. an older session, or the pit page never opened). */
+function resolveWeatherLocation(
+  db: DB,
+  sessionId: string
+): { location: WeatherLocation | undefined; hasAnyLocation: boolean } {
+  const pit = getPitLocation(db, sessionId);
+  if (isFreshLocation(pit)) return { location: pit, hasAnyLocation: true };
+  const car = getLatestLocation(db, sessionId);
+  if (isFreshLocation(car)) return { location: car, hasAnyLocation: true };
+  return { location: undefined, hasAnyLocation: Boolean(pit || car) };
+}
 
 type AnalyzeMode = "default" | "pitwall" | "driver" | "question";
 
@@ -231,12 +259,9 @@ function enqueueAnalysis(
         let weatherText = "(天気情報なし)";
         let weatherLocation = location;
         if (!weatherLocation) {
-          const latest = getLatestLocation(db, sessionId);
-          if (latest) {
-            const ageMs = Date.now() - new Date(latest.recorded_at).getTime();
-            if (ageMs <= WEATHER_LOCATION_MAX_AGE_MS) {
-              weatherLocation = { lat: latest.lat, lng: latest.lng };
-            }
+          const resolved = resolveWeatherLocation(db, sessionId);
+          if (resolved.location) {
+            weatherLocation = { lat: resolved.location.lat, lng: resolved.location.lng };
           }
         }
         if (weatherLocation) {
@@ -323,13 +348,16 @@ export function registerAnalyzeRoutes(
       if (!session) return reply.code(404).send({ error: "not_found" });
       const storedSnapshot = getLatestWeatherSnapshot(db, session.id);
 
-      const location = getLatestLocation(db, session.id);
-      if (!location)
-        return reply.send({ weather: null, snapshot: storedSnapshot, precipitation: null, reason: "location_unavailable" });
-      const ageMs = Date.now() - new Date(location.recorded_at).getTime();
-      if (!Number.isFinite(ageMs) || ageMs > WEATHER_LOCATION_MAX_AGE_MS) {
-        return reply.send({ weather: null, snapshot: storedSnapshot, precipitation: null, reason: "location_stale" });
+      const resolved = resolveWeatherLocation(db, session.id);
+      if (!resolved.location) {
+        return reply.send({
+          weather: null,
+          snapshot: storedSnapshot,
+          precipitation: null,
+          reason: resolved.hasAnyLocation ? "location_stale" : "location_unavailable",
+        });
       }
+      const location = resolved.location;
 
       // The route screen needs values for the *current GPS point*, not merely the latest
       // persisted minute snapshot. Source timestamps remain in the response so a fresh page
@@ -366,12 +394,15 @@ export function registerAnalyzeRoutes(
     async (request, reply) => {
       const session = getSession(db, request.params.id);
       if (!session) return reply.code(404).send({ error: "not_found" });
-      const location = getLatestLocation(db, session.id);
-      if (!location) return reply.send({ timeline: null, precipitation: null, reason: "location_unavailable" });
-      const ageMs = Date.now() - new Date(location.recorded_at).getTime();
-      if (!Number.isFinite(ageMs) || ageMs > WEATHER_LOCATION_MAX_AGE_MS) {
-        return reply.send({ timeline: null, precipitation: null, reason: "location_stale" });
+      const resolved = resolveWeatherLocation(db, session.id);
+      if (!resolved.location) {
+        return reply.send({
+          timeline: null,
+          precipitation: null,
+          reason: resolved.hasAnyLocation ? "location_stale" : "location_unavailable",
+        });
       }
+      const location = resolved.location;
       const [timelineResult, precipitationResult] = await Promise.allSettled([
         isRainNowcastProvider(weatherSnapshotProvider)
           ? weatherSnapshotProvider.getRainTimeline(location.lat, location.lng)

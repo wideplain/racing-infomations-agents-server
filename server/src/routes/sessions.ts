@@ -13,6 +13,7 @@ import {
   insertLocations,
   listLocations,
   listWeatherSnapshots,
+  setPitLocation,
 } from "../db/repo.js";
 import type { RouteResolver } from "../route/routeResolver.js";
 import type { WeatherSnapshotRecorder } from "../weather/weatherRecorder.js";
@@ -45,6 +46,13 @@ const locationSchema = z.object({
 
 const locationsBatchSchema = z.object({
   locations: z.array(locationSchema).min(1).max(50),
+});
+
+const pitLocationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  accuracyM: z.number().min(0).optional(),
+  recordedAt: z.string(),
 });
 
 const segmentPatchSchema = z.object({
@@ -132,6 +140,23 @@ export function registerSessionRoutes(
         request.log.warn({ err: error }, "weather snapshot scheduling failed");
       }
       return reply.code(201).send({ inserted });
+    }
+  );
+
+  // The pit crew's own screen reports where it is, separately from the car's GPS track, so
+  // weather lookups can prefer the pit's position (see resolveWeatherLocation in analyze.ts).
+  app.post<{ Params: { id: string } }>(
+    "/sessions/:id/pit-location",
+    async (request, reply) => {
+      const session = getSession(db, request.params.id);
+      if (!session) return reply.code(404).send({ error: "not_found" });
+
+      const parsed = pitLocationSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_body" });
+      }
+      setPitLocation(db, request.params.id, parsed.data);
+      return reply.code(204).send();
     }
   );
 

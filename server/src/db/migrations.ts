@@ -54,6 +54,18 @@ export function migrate(db: DB): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id)
     );
 
+    -- One row per session: where the pit crew's own screen is, not the car. Weather lookups
+    -- prefer this over the car's GPS track (see resolveWeatherLocation in routes/analyze.ts).
+    CREATE TABLE IF NOT EXISTS pit_locations (
+      session_id TEXT PRIMARY KEY,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      accuracy_m REAL,
+      recorded_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    );
+
     CREATE TABLE IF NOT EXISTS weather_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
