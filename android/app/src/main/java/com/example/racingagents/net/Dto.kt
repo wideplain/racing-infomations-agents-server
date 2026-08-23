@@ -13,12 +13,22 @@ data class CreateSessionRequest(
     val deviceId: String,
 )
 
+/** The pit's own position (see LocationProvider), sent alongside AI解析 requests. The server
+ * only folds this into the prompt for pitwall/question modes (see resolveWeatherLocation); it
+ * is harmless to send for other modes, which just ignore it. */
+@Serializable
+data class LocationDto(
+    val lat: Double,
+    val lng: Double,
+)
+
 @Serializable
 data class AnalyzeRequest(
     val mode: String,
     /** Optional free-text note attached to a single manual analysis run (e.g. context the STT
      * couldn't capture, a specific question to focus on). Null/omitted for auto-triggered runs. */
     val instruction: String? = null,
+    val location: LocationDto? = null,
 )
 
 @Serializable

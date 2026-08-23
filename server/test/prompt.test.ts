@@ -133,6 +133,7 @@ describe("buildPitwallPrompt", () => {
     expect(prompt).toContain("statusSummary");
     expect(prompt).toContain("[00:00] 発言0");
     expect(prompt).toContain("なし");
+    expect(prompt).toContain("{{WEATHER}}");
   });
 });
 
@@ -264,5 +265,13 @@ describe("buildQuestionPrompt", () => {
       question: "q",
     });
     expect(prompt).not.toContain("これ以前の発言");
+  });
+
+  it("loads the real question prompt template file when none is given", () => {
+    const segs = makeSegments(1);
+    const prompt = buildQuestionPrompt(segs, baseTime.toISOString(), [], { question: "q" });
+    expect(prompt).toContain("answer");
+    expect(prompt).toContain("[00:00] 発言0");
+    expect(prompt).toContain("{{WEATHER}}");
   });
 });

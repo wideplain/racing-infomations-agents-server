@@ -10,10 +10,13 @@ import com.example.racingagents.data.SegmentQueue
 import com.example.racingagents.data.SettingsRepository
 import com.example.racingagents.data.StoredTranscriptLine
 import com.example.racingagents.data.TranscriptStore
+import com.example.racingagents.location.LocationFix
+import com.example.racingagents.location.LocationProvider
 import com.example.racingagents.net.AnalysisDto
 import com.example.racingagents.net.AnalyzeRequest
 import com.example.racingagents.net.ApiClientFactory
 import com.example.racingagents.net.CreateSessionRequest
+import com.example.racingagents.net.LocationDto
 import com.example.racingagents.net.PatchSegmentRequest
 import com.example.racingagents.net.RacingAgentsApi
 import com.example.racingagents.stt.ListeningState
@@ -25,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class AnalysisStatus { QUEUED, RUNNING, DONE, ERROR }
 
@@ -116,6 +120,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private var lastAutoAnalysisAt: Long = System.currentTimeMillis()
     private var lastAutoAnalysisCharCount: Int = 0
 
+    // The pit does not move, so a background refresh every few minutes (see locationRefreshLoop)
+    // is enough — launchAnalysis reads this cached value rather than requesting a fresh GPS fix
+    // on every AI解析 tap, which would otherwise add several seconds of latency to each request.
+    private val locationProvider = LocationProvider(context)
+    private var lastLocation: LocationFix? = null
+
     init {
         viewModelScope.launch {
             // Restore transcript history BEFORE anything else starts — settingsFlow's collector
@@ -163,6 +173,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
             }
         }
         viewModelScope.launch { autoAnalysisLoop() }
+        viewModelScope.launch { locationRefreshLoop() }
         viewModelScope.launch {
             SttServiceHolder.finalSegments.collect { segment ->
                 if (segment != null) onFinalSegment(segment)
@@ -435,6 +446,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     AnalyzeRequest(
                         mode = mode,
                         instruction = instruction?.trim()?.ifBlank { null },
+                        location = lastLocation?.let { LocationDto(it.lat, it.lng) },
                     ),
                 )
             }
@@ -497,7 +509,26 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    /** Refreshes [lastLocation] every few minutes — matching the web viewer's own pit-location
+     * refresh interval (PIT_LOCATION_REFRESH_MS in viewer.js) — instead of on every AI解析 tap.
+     * A stalled or denied fix just leaves the previous value in place; launchAnalysis already
+     * treats a null location the same way the server does when nothing has been posted at all.
+     * Until the first fix lands, retries on the short [LOCATION_RETRY_INTERVAL_MS] cadence
+     * instead — on first launch this loop starts while the permission dialog is still open (so
+     * the first attempt always misses), and without a quick retry, granting permission right
+     * after would otherwise leave analyses without weather for up to a full interval. */
+    private suspend fun locationRefreshLoop() {
+        while (true) {
+            val fix = withTimeoutOrNull(LOCATION_FIX_TIMEOUT_MS) { locationProvider.getCurrentLocation() }
+            if (fix != null) lastLocation = fix
+            delay(if (lastLocation == null) LOCATION_RETRY_INTERVAL_MS else LOCATION_REFRESH_INTERVAL_MS)
+        }
+    }
+
     companion object {
+        private const val LOCATION_REFRESH_INTERVAL_MS = 3 * 60 * 1000L
+        private const val LOCATION_RETRY_INTERVAL_MS = 15_000L
+        private const val LOCATION_FIX_TIMEOUT_MS = 15_000L
         fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {

@@ -9,6 +9,7 @@ import type {
   WeatherSnapshotInput,
   WeatherSnapshotProvider,
   RainNowcastProvider,
+  RainNowcastTimeline,
   PrecipitationOutlookProvider,
 } from "../weather/types.js";
 import { SerialQueue, QueueFullError } from "../analysis/queue.js";
@@ -236,6 +237,7 @@ function enqueueAnalysis(
     provider: AIProvider;
     queue: SerialQueue;
     weather: WeatherProvider;
+    weatherSnapshotProvider?: WeatherSnapshotProvider;
   },
   sessionId: string,
   sessionStartedAt: string,
@@ -243,7 +245,7 @@ function enqueueAnalysis(
   prepared: PreparedPrompt,
   location: { lat: number; lng: number } | undefined
 ): string {
-  const { db, provider, queue, weather } = deps;
+  const { db, provider, queue, weather, weatherSnapshotProvider } = deps;
   const analysis = createAnalysis(db, {
     sessionId,
     provider: provider.name,
@@ -255,7 +257,10 @@ function enqueueAnalysis(
       let finalPrompt = prepared.prompt;
       let rainForecast: RainForecast | undefined;
       let weatherForecast: WeatherForecast | undefined;
-      if (mode === "driver") {
+      // Driver mode's HUD needs rainForecast/weatherForecast as separate result fields (see
+      // serializeResult); pitwall and question just get the same {{WEATHER}} text folded into
+      // their prompt, since both templates now carry the placeholder too.
+      if (mode === "driver" || mode === "pitwall" || mode === "question") {
         let weatherText = "(天気情報なし)";
         let weatherLocation = location;
         if (!weatherLocation) {
@@ -265,16 +270,44 @@ function enqueueAnalysis(
           }
         }
         if (weatherLocation) {
+          const lines: string[] = [];
+          // The nowcast-backed snapshot is the only source that can speak to *right now*; the
+          // area forecast below is a several-hour-wide period summary and cannot confirm or rule
+          // out rain at this instant. Keeping them as separately labeled lines (rather than one
+          // merged sentence) lets the prompt tell the model exactly which one answers "is it
+          // raining right now" (see question.ja.md).
+          try {
+            const snapshot = await weatherSnapshotProvider?.getWeather(weatherLocation.lat, weatherLocation.lng);
+            if (snapshot && snapshot.isRaining !== null) {
+              lines.push(`現在: ${snapshot.isRaining ? "雨が降っています" : "雨は降っていません"}（ナウキャスト実況）`);
+            }
+          } catch {
+            // fall through without a "現在" line
+          }
           try {
             const result = await weather.getWeather(weatherLocation.lat, weatherLocation.lng);
             if (result?.summaryText) {
-              weatherText = result.summaryText;
+              lines.push(`予報: ${result.summaryText}`);
               rainForecast = result.rainForecast;
               weatherForecast = result.weatherForecast;
             }
           } catch {
-            // fall through to the no-weather placeholder
+            // fall through to whatever lines (if any) were already collected
           }
+          // The one variable that actually matters mid-session: not "is it raining" (the crew can
+          // see that) and not a six-hour probability, but when it starts. The five-minute nowcast
+          // timeline (same data as the viewer's "これからの雨" panel) is the only source that can
+          // answer that within its one-hour horizon.
+          try {
+            if (isRainNowcastProvider(weatherSnapshotProvider)) {
+              const timeline = await weatherSnapshotProvider.getRainTimeline(weatherLocation.lat, weatherLocation.lng);
+              const onsetLine = buildRainOnsetLine(timeline);
+              if (onsetLine) lines.push(onsetLine);
+            }
+          } catch {
+            // fall through without a "見込み" line
+          }
+          if (lines.length > 0) weatherText = lines.join("\n");
         }
         finalPrompt = prepared.prompt.replace("{{WEATHER}}", weatherText);
       }
@@ -325,6 +358,19 @@ function toCurrentWeatherSnapshot(
 
 function isRainNowcastProvider(value: unknown): value is RainNowcastProvider {
   return typeof (value as Partial<RainNowcastProvider> | undefined)?.getRainTimeline === "function";
+}
+
+/** Condenses the nowcast timeline (5-minute points, ~1 hour ahead) into the one line the prompt
+ * actually needs: minutes until rain starts, not a snapshot of "is it raining" (see "現在:"
+ * above) or a several-hour probability (see "予報:" above). Null when the timeline itself is
+ * unavailable, so the caller can drop the line entirely rather than print a guess. */
+function buildRainOnsetLine(timeline: RainNowcastTimeline | null | undefined): string | null {
+  if (!timeline || timeline.points.length === 0) return null;
+  const rainy = timeline.points.find((p) => p.isRaining === true);
+  if (!rainy) return "見込み: 1時間先まで雨の見込みなし";
+  const etaMinutes = Math.round((new Date(rainy.validAt).getTime() - Date.now()) / 60_000);
+  if (etaMinutes <= 0) return "見込み: すでに降り始めています（ナウキャスト、1時間先まで）";
+  return `見込み: ${etaMinutes}分後から雨（ナウキャスト、1時間先まで）`;
 }
 
 function isPrecipitationOutlookProvider(value: unknown): value is PrecipitationOutlookProvider {
@@ -498,7 +544,7 @@ export function registerAnalyzeRoutes(
         return reply.code(429).send({ error: "queue_full" });
       }
 
-      const deps = { db, provider, queue, weather };
+      const deps = { db, provider, queue, weather, weatherSnapshotProvider };
       let analysisId: string;
       let driverAnalysisId: string | undefined;
       try {
