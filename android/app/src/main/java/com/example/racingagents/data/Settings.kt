@@ -46,6 +46,9 @@ data class AppSettings(
     val sttLanguage: String = "ja-JP",
     /** Saved 前提条件 presets; [Premise.applied] ones are folded into every analysis instruction. */
     val premises: List<Premise> = emptyList(),
+    /** A name/word (kana), that when heard in the live transcript, auto-opens 質問する and starts
+     * routing everything said afterwards into the question field. Blank disables the feature. */
+    val questionTriggerName: String = "",
 )
 
 /** Server URL / API key / beep-mute / auto-analysis config, persisted via DataStore preferences. */
@@ -61,6 +64,7 @@ class SettingsRepository(private val context: Context) {
         val DRIVER_SUMMARY_ENABLED = booleanPreferencesKey("driver_summary_enabled")
         val STT_LANGUAGE = stringPreferencesKey("stt_language")
         val PREMISES = stringPreferencesKey("premises_json")
+        val QUESTION_TRIGGER_NAME = stringPreferencesKey("question_trigger_name")
     }
 
     val settingsFlow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -90,6 +94,7 @@ class SettingsRepository(private val context: Context) {
             premises = runCatching {
                 premisesJson.decodeFromString<List<Premise>>(prefs[Keys.PREMISES] ?: "[]")
             }.getOrDefault(emptyList()),
+            questionTriggerName = prefs[Keys.QUESTION_TRIGGER_NAME] ?: "",
         )
     }
 
@@ -153,5 +158,9 @@ class SettingsRepository(private val context: Context) {
             val updated = readPremises(prefs).map { if (it.id == id) it.copy(applied = applied) else it }
             prefs[Keys.PREMISES] = premisesJson.encodeToString(updated)
         }
+    }
+
+    suspend fun setQuestionTriggerName(name: String) {
+        context.settingsDataStore.edit { it[Keys.QUESTION_TRIGGER_NAME] = name.trim() }
     }
 }

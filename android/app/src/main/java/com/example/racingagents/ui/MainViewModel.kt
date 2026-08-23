@@ -79,6 +79,14 @@ data class MainUiState(
     val pendingCount: Int = 0,
     val analysisHistory: List<AnalysisEntry> = emptyList(),
     val showSettingsSheet: Boolean = false,
+    val showQuestionDialog: Boolean = false,
+    /** The 質問する text field's current content. Either typed by hand, or (while
+     * [isCapturingQuestion]) appended to live as the crew keeps talking after the trigger name. */
+    val questionDraft: String = "",
+    /** True from the moment [settings.questionTriggerName] is heard until the dialog is closed —
+     * while true, every subsequent final STT segment is appended to [questionDraft] instead of
+     * only landing in the transcript. */
+    val isCapturingQuestion: Boolean = false,
     val lastErrorMessage: String? = null,
 )
 
@@ -250,7 +258,49 @@ class MainViewModel(private val context: Context) : ViewModel() {
         _uiState.update {
             it.copy(transcript = it.transcript + TranscriptLine(clientSeq ?: -1L, segment.text, recognizedAt = now, synced = false, localId = nextLocalId()))
         }
+        // Transcript logging above always happens regardless of the trigger — this only decides
+        // whether the same words also get routed into the question draft.
+        handleQuestionTrigger(segment.text)
     }
+
+    /** Detects [AppSettings.questionTriggerName] in live speech and opens/feeds 質問する
+     * hands-free, so the crew can just say the driver's (or a fixed) name mid-conversation instead
+     * of reaching for the phone screen — the transcript keeps recording everything regardless.
+     *
+     * - Not yet capturing: look for the trigger name (kana-script-insensitive — the same name can
+     *   come back from STT as either hiragana or katakana) anywhere in this segment. If found,
+     *   open the dialog and seed the draft with whatever follows the name in this same segment
+     *   (the name itself is stripped so it doesn't show up as part of the question).
+     * - Already capturing: every further final segment is appended, until the dialog is closed
+     *   (submit or cancel — see [closeQuestionDialog]), so a multi-sentence question keeps growing
+     *   instead of only capturing the one segment right after the name. */
+    private fun handleQuestionTrigger(text: String) {
+        val state = _uiState.value
+        if (state.isCapturingQuestion) {
+            _uiState.update { it.copy(questionDraft = (it.questionDraft + " " + text).trim()) }
+            return
+        }
+        if (state.showQuestionDialog) return // a manually-opened dialog is already in progress
+        val trigger = state.settings.questionTriggerName.trim()
+        if (trigger.isBlank()) return
+        val index = kanaInsensitiveIndexOf(text, trigger)
+        if (index < 0) return
+        val remainder = text.substring(index + trigger.length).trim()
+        _uiState.update {
+            it.copy(showQuestionDialog = true, isCapturingQuestion = true, questionDraft = remainder)
+        }
+    }
+
+    fun openQuestionDialog() = _uiState.update { it.copy(showQuestionDialog = true) }
+
+    /** Closes 質問する and resets the draft/capture state, whether the crew submitted the question
+     * or cancelled — either way the next trigger-name mention should start a fresh capture rather
+     * than appending onto leftover text from the previous one. */
+    fun closeQuestionDialog() = _uiState.update {
+        it.copy(showQuestionDialog = false, questionDraft = "", isCapturingQuestion = false)
+    }
+
+    fun onQuestionDraftChanged(text: String) = _uiState.update { it.copy(questionDraft = text) }
 
     /** Edits text and/or toggles archive (AI解析から除外) for an already-synced line.
      * No-op for lines still pending upload — they don't exist on the server yet to PATCH. */
@@ -300,6 +350,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
     fun onSttLanguageChanged(lang: String) = viewModelScope.launch { settingsRepository.setSttLanguage(lang) }
     fun onDriverSummaryEnabledChanged(enabled: Boolean) = viewModelScope.launch { settingsRepository.setDriverSummaryEnabled(enabled) }
+    fun onQuestionTriggerNameChanged(name: String) = viewModelScope.launch { settingsRepository.setQuestionTriggerName(name) }
 
     fun addPremise(text: String) = viewModelScope.launch { settingsRepository.addPremise(text) }
     fun removePremise(id: String) = viewModelScope.launch { settingsRepository.removePremise(id) }
@@ -537,3 +588,13 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 }
+
+/** Folds full-width katakana (U+30A1-U+30F6) down to hiragana so a trigger name saved in one kana
+ * script still matches speech STT happened to transcribe in the other — Android's recognizer isn't
+ * consistent about which script it picks for a given name. */
+private fun toHiragana(s: String): String = s.map { c ->
+    if (c in 'ァ'..'ヶ') c - 0x60 else c
+}.joinToString("")
+
+private fun kanaInsensitiveIndexOf(haystack: String, needle: String): Int =
+    toHiragana(haystack).indexOf(toHiragana(needle))
