@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -71,6 +73,7 @@ fun MainScreen(
     var editingLine by remember { mutableStateOf<TranscriptLine?>(null) }
     var showInstructionDialog by remember { mutableStateOf(false) }
     var showQuestionDialog by remember { mutableStateOf(false) }
+    var showPremiseDialog by remember { mutableStateOf(false) }
     var transcriptExpanded by remember { mutableStateOf(true) }
     var showNewSessionConfirm by remember { mutableStateOf(false) }
     var showQrDialog by remember { mutableStateOf(false) }
@@ -166,6 +169,14 @@ fun MainScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                     }
+                    AssistChip(
+                        onClick = { showPremiseDialog = true },
+                        label = {
+                            val appliedCount = uiState.settings.premises.count { it.applied }
+                            Text(if (appliedCount > 0) "📌 前提条件（$appliedCount）" else "📌 前提条件")
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
                     AssistChip(
                         onClick = { showNewSessionConfirm = true },
                         label = { Text("🆕 新規セッション") },
@@ -349,6 +360,16 @@ fun MainScreen(
         )
     }
 
+    if (showPremiseDialog) {
+        PremiseSheet(
+            premises = uiState.settings.premises,
+            onAdd = viewModel::addPremise,
+            onApply = viewModel::setPremiseApplied,
+            onRemove = viewModel::removePremise,
+            onDismiss = { showPremiseDialog = false },
+        )
+    }
+
     if (showNewSessionConfirm) {
         AlertDialog(
             onDismissRequest = { showNewSessionConfirm = false },
@@ -495,6 +516,98 @@ private fun QuestionDialog(
             TextButton(onClick = onDismiss) { Text("キャンセル") }
         },
     )
+}
+
+/** Opened via the "📌 前提条件" chip: manage reusable premises the crew prepares ahead of time
+ * (e.g. "無線は短く簡潔に") instead of retyping the same context into every メモを添えて解析 note.
+ * Each saved premise has its own 適用 (apply) toggle — applied ones are folded into every AI解析
+ * request's instruction automatically until switched off, so this list doubles as both storage
+ * and the on/off control, with no separate "apply" action needed.
+ *
+ * A bottom sheet rather than an AlertDialog (which was tried first): an AlertDialog's fixed,
+ * screen-fraction-sized card left no good way to fit a growing list plus an "追加して保存" button
+ * that stays reachable — a bottom sheet gets the full screen height instead, and drags open
+ * further if content still doesn't fit. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PremiseSheet(
+    premises: List<com.example.racingagents.data.Premise>,
+    onAdd: (String) -> Unit,
+    onApply: (id: String, applied: Boolean) -> Unit,
+    onRemove: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var newText by remember { mutableStateOf("") }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text("前提条件", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "適用中のものは毎回のAI解析に自動で含まれます。",
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+            )
+            Spacer(Modifier.height(12.dp))
+            if (premises.isEmpty()) {
+                Text("保存された前提条件はありません", color = Color.Gray)
+            } else {
+                premises.forEach { premise ->
+                    // Full text would make a single long premise sprawl the whole list
+                    // unreadable, so each row shows one truncated line and expands to the full
+                    // text on tap — cheaper than a fixed-height row that either wastes space for
+                    // short premises or clips long ones with no way to read the rest.
+                    var expanded by remember(premise.id) { mutableStateOf(false) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable { expanded = !expanded },
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = premise.applied,
+                            onCheckedChange = { onApply(premise.id, it) },
+                        )
+                        Text(
+                            premise.text,
+                            modifier = Modifier.weight(1f),
+                            maxLines = if (expanded) Int.MAX_VALUE else 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                        TextButton(onClick = { onRemove(premise.id) }) { Text("削除") }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = newText,
+                onValueChange = { newText = it },
+                label = { Text("新しい前提条件") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onDismiss) { Text("閉じる") }
+                TextButton(
+                    onClick = {
+                        onAdd(newText)
+                        newText = ""
+                    },
+                    enabled = newText.isNotBlank(),
+                ) { Text("追加して保存") }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
 }
 
 /** Long-press-triggered dialog: correct STT mistakes and/or archive a line out of AI解析 context. */

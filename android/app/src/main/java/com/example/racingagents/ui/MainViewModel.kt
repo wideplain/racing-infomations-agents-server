@@ -277,6 +277,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
     fun onSttLanguageChanged(lang: String) = viewModelScope.launch { settingsRepository.setSttLanguage(lang) }
     fun onDriverSummaryEnabledChanged(enabled: Boolean) = viewModelScope.launch { settingsRepository.setDriverSummaryEnabled(enabled) }
 
+    fun addPremise(text: String) = viewModelScope.launch { settingsRepository.addPremise(text) }
+    fun removePremise(id: String) = viewModelScope.launch { settingsRepository.removePremise(id) }
+    fun setPremiseApplied(id: String, applied: Boolean) = viewModelScope.launch { settingsRepository.setPremiseApplied(id, applied) }
+
     fun openSettingsSheet() = _uiState.update { it.copy(showSettingsSheet = true) }
     fun closeSettingsSheet() = _uiState.update { it.copy(showSettingsSheet = false) }
 
@@ -354,11 +358,24 @@ class MainViewModel(private val context: Context) : ViewModel() {
      * driverSummaryEnabled — also fires an independent "driver" mode request for the same
      * session/trigger, so the web viewer's driver display can accumulate short summaries without
      * displacing the detailed pitwall/default analyses. */
+    /** Joins every currently-applied saved 前提条件 (see [Premise]) ahead of [oneOff] (a single
+     * run's メモ/質問 text, if any) so both flow into the same instruction the server sees —
+     * standing context first, then whatever's specific to this run. */
+    private fun mergeAppliedPremises(oneOff: String?): String? {
+        val applied = _uiState.value.settings.premises
+            .filter { it.applied }
+            .map { it.text.trim() }
+            .filter { it.isNotBlank() }
+        val note = oneOff?.trim()?.ifBlank { null }
+        return (applied + listOfNotNull(note)).joinToString("\n").ifBlank { null }
+    }
+
     fun runAnalysis(trigger: AnalysisTrigger = AnalysisTrigger.MANUAL, instruction: String? = null) {
         val settings = _uiState.value.settings
-        launchAnalysis(settings.analysisMode, trigger, instruction)
+        val merged = mergeAppliedPremises(instruction)
+        launchAnalysis(settings.analysisMode, trigger, merged)
         if (settings.driverSummaryEnabled) {
-            launchAnalysis("driver", trigger, instruction)
+            launchAnalysis("driver", trigger, merged)
         }
     }
 
