@@ -255,7 +255,10 @@ function enqueueAnalysis(
       let finalPrompt = prepared.prompt;
       let rainForecast: RainForecast | undefined;
       let weatherForecast: WeatherForecast | undefined;
-      if (mode === "driver") {
+      // Driver mode's HUD needs rainForecast/weatherForecast as separate result fields (see
+      // serializeResult); pitwall and question just get the same {{WEATHER}} text folded into
+      // their prompt, since both templates now carry the placeholder too.
+      if (mode === "driver" || mode === "pitwall" || mode === "question") {
         let weatherText = "(天気情報なし)";
         let weatherLocation = location;
         if (!weatherLocation) {

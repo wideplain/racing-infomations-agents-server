@@ -661,6 +661,104 @@ describe("API", () => {
     expect(body.prompt as string).toContain("(天気情報なし)");
   });
 
+  it("injects weather summary into the persisted pitwall prompt when location is given", async () => {
+    fakeWeather.result = {
+      summaryText: "熊本地方: くもり時々雨 / 降水確率: 60%",
+      fetchedAt: new Date().toISOString(),
+      source: "jma",
+    };
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/segments`,
+      headers: authHeaders(),
+      payload: { segments: [{ clientSeq: 1, text: "1周目通過" }] },
+    });
+
+    const analyzeRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "pitwall", location: { lat: 32.8, lng: 130.7 } },
+    });
+    expect(analyzeRes.statusCode).toBe(202);
+    const { analysisId } = analyzeRes.json();
+
+    let status = "";
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${analysisId}`,
+        headers: authHeaders(),
+      });
+      body = pollRes.json();
+      status = body.status as string;
+      if (status === "done" || status === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(status).toBe("done");
+    expect(body.prompt as string).toContain("熊本地方: くもり時々雨 / 降水確率: 60%");
+  });
+
+  it("injects weather summary into the persisted question prompt when location is given", async () => {
+    fakeWeather.result = {
+      summaryText: "熊本地方: くもり時々雨 / 降水確率: 60%",
+      fetchedAt: new Date().toISOString(),
+      source: "jma",
+    };
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/segments`,
+      headers: authHeaders(),
+      payload: { segments: [{ clientSeq: 1, text: "燃料はあと5周分いけます" }] },
+    });
+
+    const analyzeRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "question", instruction: "今雨降ってる？", location: { lat: 32.8, lng: 130.7 } },
+    });
+    expect(analyzeRes.statusCode).toBe(202);
+    const { analysisId } = analyzeRes.json();
+
+    let status = "";
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${analysisId}`,
+        headers: authHeaders(),
+      });
+      body = pollRes.json();
+      status = body.status as string;
+      if (status === "done" || status === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(status).toBe("done");
+    expect(body.prompt as string).toContain("熊本地方: くもり時々雨 / 降水確率: 60%");
+  });
+
   it("falls back to the latest posted location for driver weather when the request has none", async () => {
     fakeWeather.result = {
       summaryText: "熊本地方: 晴れ / 降水確率: 10%",

@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Attaches the pit's location to AI解析 requests so the server can attach weather info
+         (see LocationProvider). Coarse is enough for weather; this app does not navigate. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Required from Android 11+ (API 30+) to be able to see/bind the on-device
          recognition service via PackageManager queries; without this the
