@@ -812,6 +812,111 @@ describe("API", () => {
     expect(body.prompt as string).toContain("予報: 熊本地方: くもり時々雨 / 降水確率: 60%");
   });
 
+  it("adds a rain-onset 見込み line from the nowcast timeline when rain is coming", async () => {
+    fakeWeather.result = null;
+    fakeWeatherSnapshot.timeline = {
+      baseTime: new Date().toISOString(),
+      points: [
+        { validAt: new Date(Date.now() + 5 * 60_000).toISOString(), isRaining: false },
+        { validAt: new Date(Date.now() + 30 * 60_000).toISOString(), isRaining: true },
+        { validAt: new Date(Date.now() + 35 * 60_000).toISOString(), isRaining: true },
+      ],
+    };
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/segments`,
+      headers: authHeaders(),
+      payload: { segments: [{ clientSeq: 1, text: "1周目通過" }] },
+    });
+
+    const analyzeRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "pitwall", location: { lat: 32.8, lng: 130.7 } },
+    });
+    const { analysisId } = analyzeRes.json();
+
+    let status = "";
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${analysisId}`,
+        headers: authHeaders(),
+      });
+      body = pollRes.json();
+      status = body.status as string;
+      if (status === "done" || status === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(status).toBe("done");
+    // Rounds to the nearest minute at request time, so allow the one-minute either side that a
+    // slow test run could shift it by.
+    expect(body.prompt as string).toMatch(/見込み: (29|30|31)分後から雨（ナウキャスト、1時間先まで）/);
+  });
+
+  it("says so when the nowcast timeline shows no rain in the next hour", async () => {
+    fakeWeather.result = null;
+    fakeWeatherSnapshot.timeline = {
+      baseTime: new Date().toISOString(),
+      points: [
+        { validAt: new Date(Date.now() + 5 * 60_000).toISOString(), isRaining: false },
+        { validAt: new Date(Date.now() + 60 * 60_000).toISOString(), isRaining: false },
+      ],
+    };
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: authHeaders(),
+      payload: {},
+    });
+    const session = createRes.json();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/segments`,
+      headers: authHeaders(),
+      payload: { segments: [{ clientSeq: 1, text: "1周目通過" }] },
+    });
+
+    const analyzeRes = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/analyze`,
+      headers: authHeaders(),
+      payload: { mode: "pitwall", location: { lat: 32.8, lng: 130.7 } },
+    });
+    const { analysisId } = analyzeRes.json();
+
+    let status = "";
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) {
+      const pollRes = await app.inject({
+        method: "GET",
+        url: `/api/analyses/${analysisId}`,
+        headers: authHeaders(),
+      });
+      body = pollRes.json();
+      status = body.status as string;
+      if (status === "done" || status === "error") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(status).toBe("done");
+    expect(body.prompt as string).toContain("見込み: 1時間先まで雨の見込みなし");
+  });
+
   it("falls back to the latest posted location for driver weather when the request has none", async () => {
     fakeWeather.result = {
       summaryText: "熊本地方: 晴れ / 降水確率: 10%",

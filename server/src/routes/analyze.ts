@@ -9,6 +9,7 @@ import type {
   WeatherSnapshotInput,
   WeatherSnapshotProvider,
   RainNowcastProvider,
+  RainNowcastTimeline,
   PrecipitationOutlookProvider,
 } from "../weather/types.js";
 import { SerialQueue, QueueFullError } from "../analysis/queue.js";
@@ -293,6 +294,19 @@ function enqueueAnalysis(
           } catch {
             // fall through to whatever lines (if any) were already collected
           }
+          // The one variable that actually matters mid-session: not "is it raining" (the crew can
+          // see that) and not a six-hour probability, but when it starts. The five-minute nowcast
+          // timeline (same data as the viewer's "これからの雨" panel) is the only source that can
+          // answer that within its one-hour horizon.
+          try {
+            if (isRainNowcastProvider(weatherSnapshotProvider)) {
+              const timeline = await weatherSnapshotProvider.getRainTimeline(weatherLocation.lat, weatherLocation.lng);
+              const onsetLine = buildRainOnsetLine(timeline);
+              if (onsetLine) lines.push(onsetLine);
+            }
+          } catch {
+            // fall through without a "見込み" line
+          }
           if (lines.length > 0) weatherText = lines.join("\n");
         }
         finalPrompt = prepared.prompt.replace("{{WEATHER}}", weatherText);
@@ -344,6 +358,19 @@ function toCurrentWeatherSnapshot(
 
 function isRainNowcastProvider(value: unknown): value is RainNowcastProvider {
   return typeof (value as Partial<RainNowcastProvider> | undefined)?.getRainTimeline === "function";
+}
+
+/** Condenses the nowcast timeline (5-minute points, ~1 hour ahead) into the one line the prompt
+ * actually needs: minutes until rain starts, not a snapshot of "is it raining" (see "現在:"
+ * above) or a several-hour probability (see "予報:" above). Null when the timeline itself is
+ * unavailable, so the caller can drop the line entirely rather than print a guess. */
+function buildRainOnsetLine(timeline: RainNowcastTimeline | null | undefined): string | null {
+  if (!timeline || timeline.points.length === 0) return null;
+  const rainy = timeline.points.find((p) => p.isRaining === true);
+  if (!rainy) return "見込み: 1時間先まで雨の見込みなし";
+  const etaMinutes = Math.round((new Date(rainy.validAt).getTime() - Date.now()) / 60_000);
+  if (etaMinutes <= 0) return "見込み: すでに降り始めています（ナウキャスト、1時間先まで）";
+  return `見込み: ${etaMinutes}分後から雨（ナウキャスト、1時間先まで）`;
 }
 
 function isPrecipitationOutlookProvider(value: unknown): value is PrecipitationOutlookProvider {
