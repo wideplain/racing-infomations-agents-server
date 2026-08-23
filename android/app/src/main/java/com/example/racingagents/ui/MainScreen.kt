@@ -713,7 +713,17 @@ private fun SettingsSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        // This Column previously had no scroll of its own: ModalBottomSheet caps its content at
+        // the screen height but doesn't scroll that content for you, so once the sheet was fully
+        // expanded, whatever didn't fit (increasingly likely as settings were added over time)
+        // was simply cut off at the bottom edge with no way to reach it — most visibly the newest
+        // field, 質問モードの音声トリガー, appearing "crushed" against the screen edge.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
             Text("サーバー設定")
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
