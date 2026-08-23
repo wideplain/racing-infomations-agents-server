@@ -512,17 +512,22 @@ class MainViewModel(private val context: Context) : ViewModel() {
     /** Refreshes [lastLocation] every few minutes — matching the web viewer's own pit-location
      * refresh interval (PIT_LOCATION_REFRESH_MS in viewer.js) — instead of on every AI解析 tap.
      * A stalled or denied fix just leaves the previous value in place; launchAnalysis already
-     * treats a null location the same way the server does when nothing has been posted at all. */
+     * treats a null location the same way the server does when nothing has been posted at all.
+     * Until the first fix lands, retries on the short [LOCATION_RETRY_INTERVAL_MS] cadence
+     * instead — on first launch this loop starts while the permission dialog is still open (so
+     * the first attempt always misses), and without a quick retry, granting permission right
+     * after would otherwise leave analyses without weather for up to a full interval. */
     private suspend fun locationRefreshLoop() {
         while (true) {
-            withTimeoutOrNull(LOCATION_FIX_TIMEOUT_MS) { locationProvider.getCurrentLocation() }
-                ?.let { lastLocation = it }
-            delay(LOCATION_REFRESH_INTERVAL_MS)
+            val fix = withTimeoutOrNull(LOCATION_FIX_TIMEOUT_MS) { locationProvider.getCurrentLocation() }
+            if (fix != null) lastLocation = fix
+            delay(if (lastLocation == null) LOCATION_RETRY_INTERVAL_MS else LOCATION_REFRESH_INTERVAL_MS)
         }
     }
 
     companion object {
         private const val LOCATION_REFRESH_INTERVAL_MS = 3 * 60 * 1000L
+        private const val LOCATION_RETRY_INTERVAL_MS = 15_000L
         private const val LOCATION_FIX_TIMEOUT_MS = 15_000L
         fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

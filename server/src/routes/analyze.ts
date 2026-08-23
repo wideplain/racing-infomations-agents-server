@@ -236,6 +236,7 @@ function enqueueAnalysis(
     provider: AIProvider;
     queue: SerialQueue;
     weather: WeatherProvider;
+    weatherSnapshotProvider?: WeatherSnapshotProvider;
   },
   sessionId: string,
   sessionStartedAt: string,
@@ -243,7 +244,7 @@ function enqueueAnalysis(
   prepared: PreparedPrompt,
   location: { lat: number; lng: number } | undefined
 ): string {
-  const { db, provider, queue, weather } = deps;
+  const { db, provider, queue, weather, weatherSnapshotProvider } = deps;
   const analysis = createAnalysis(db, {
     sessionId,
     provider: provider.name,
@@ -268,16 +269,31 @@ function enqueueAnalysis(
           }
         }
         if (weatherLocation) {
+          const lines: string[] = [];
+          // The nowcast-backed snapshot is the only source that can speak to *right now*; the
+          // area forecast below is a several-hour-wide period summary and cannot confirm or rule
+          // out rain at this instant. Keeping them as separately labeled lines (rather than one
+          // merged sentence) lets the prompt tell the model exactly which one answers "is it
+          // raining right now" (see question.ja.md).
+          try {
+            const snapshot = await weatherSnapshotProvider?.getWeather(weatherLocation.lat, weatherLocation.lng);
+            if (snapshot && snapshot.isRaining !== null) {
+              lines.push(`現在: ${snapshot.isRaining ? "雨が降っています" : "雨は降っていません"}（ナウキャスト実況）`);
+            }
+          } catch {
+            // fall through without a "現在" line
+          }
           try {
             const result = await weather.getWeather(weatherLocation.lat, weatherLocation.lng);
             if (result?.summaryText) {
-              weatherText = result.summaryText;
+              lines.push(`予報: ${result.summaryText}`);
               rainForecast = result.rainForecast;
               weatherForecast = result.weatherForecast;
             }
           } catch {
-            // fall through to the no-weather placeholder
+            // fall through to whatever lines (if any) were already collected
           }
+          if (lines.length > 0) weatherText = lines.join("\n");
         }
         finalPrompt = prepared.prompt.replace("{{WEATHER}}", weatherText);
       }
@@ -501,7 +517,7 @@ export function registerAnalyzeRoutes(
         return reply.code(429).send({ error: "queue_full" });
       }
 
-      const deps = { db, provider, queue, weather };
+      const deps = { db, provider, queue, weather, weatherSnapshotProvider };
       let analysisId: string;
       let driverAnalysisId: string | undefined;
       try {
