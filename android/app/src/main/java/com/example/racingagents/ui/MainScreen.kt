@@ -72,7 +72,6 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     var editingLine by remember { mutableStateOf<TranscriptLine?>(null) }
     var showInstructionDialog by remember { mutableStateOf(false) }
-    var showQuestionDialog by remember { mutableStateOf(false) }
     var showPremiseDialog by remember { mutableStateOf(false) }
     var transcriptExpanded by remember { mutableStateOf(true) }
     var showNewSessionConfirm by remember { mutableStateOf(false) }
@@ -164,7 +163,7 @@ fun MainScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         AssistChip(
-                            onClick = { showQuestionDialog = true },
+                            onClick = { viewModel.openQuestionDialog() },
                             label = { Text("❓ 質問する") },
                         )
                         Spacer(Modifier.width(8.dp))
@@ -325,6 +324,7 @@ fun MainScreen(
             onAnalysisModeChanged = viewModel::onAnalysisModeChanged,
             onDriverSummaryEnabledChanged = viewModel::onDriverSummaryEnabledChanged,
             onSttLanguageChanged = viewModel::onSttLanguageChanged,
+            onQuestionTriggerNameChanged = viewModel::onQuestionTriggerNameChanged,
             onDismiss = { viewModel.closeSettingsSheet() },
         )
     }
@@ -350,13 +350,19 @@ fun MainScreen(
         )
     }
 
-    if (showQuestionDialog) {
+    if (uiState.showQuestionDialog) {
         QuestionDialog(
+            value = uiState.questionDraft,
+            onValueChange = viewModel::onQuestionDraftChanged,
+            // Only preview live partial text while a voice trigger is actually driving this
+            // dialog — a manually-opened dialog is plain typing, same as before, and shouldn't
+            // have unrelated in-progress speech bleeding into it.
+            livePartialPreview = if (uiState.isCapturingQuestion) uiState.livePartialText else "",
             onSubmit = { question ->
                 viewModel.askQuestion(question)
-                showQuestionDialog = false
+                viewModel.closeQuestionDialog()
             },
-            onDismiss = { showQuestionDialog = false },
+            onDismiss = { viewModel.closeQuestionDialog() },
         )
     }
 
@@ -486,31 +492,50 @@ private fun InstructionDialog(
     )
 }
 
-/** Opened via the "❓ 質問する" chip: the pit crew's fast path to ask the AI something about the
- * accumulated conversation and relay the answer to the driver by phone (the driver never touches
- * a screen), instead of waiting on the next periodic report. A few lines of room, unlike
- * [InstructionDialog]'s single line, since a real question runs longer than a short note. */
+/** Opened via the "❓ 質問する" chip, or hands-free by speaking the configured trigger name — the
+ * pit crew's fast path to ask the AI something about the accumulated conversation and relay the
+ * answer to the driver by phone (the driver never touches a screen), instead of waiting on the
+ * next periodic report. A few lines of room, unlike [InstructionDialog]'s single line, since a
+ * real question runs longer than a short note.
+ *
+ * Controlled (value/onValueChange) rather than owning its own text state: when a voice trigger is
+ * driving it, [MainViewModel] keeps appending newly-recognized speech into the same field the
+ * crew can also edit by hand, so both sources write into one place instead of fighting over it.
+ * [livePartialPreview] additionally echoes the in-progress (not yet finalized) utterance below the
+ * field, exactly like the main transcript's gray partial line, so the crew sees their question
+ * forming in real time instead of only once each sentence finalizes. */
 @Composable
 private fun QuestionDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
+    livePartialPreview: String,
     onSubmit: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var text by remember { mutableStateOf("") }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("質問する") },
         text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("AIへの質問") },
-                minLines = 3,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    label = { Text("AIへの質問") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (livePartialPreview.isNotBlank()) {
+                    Text(
+                        livePartialPreview,
+                        color = Color.Gray,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
         },
         confirmButton = {
-            TextButton(onClick = { if (text.isNotBlank()) onSubmit(text) }, enabled = text.isNotBlank()) { Text("質問する") }
+            TextButton(onClick = { if (value.isNotBlank()) onSubmit(value) }, enabled = value.isNotBlank()) { Text("質問する") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("キャンセル") }
@@ -684,10 +709,21 @@ private fun SettingsSheet(
     onAnalysisModeChanged: (String) -> Unit,
     onDriverSummaryEnabledChanged: (Boolean) -> Unit,
     onSttLanguageChanged: (String) -> Unit,
+    onQuestionTriggerNameChanged: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        // This Column previously had no scroll of its own: ModalBottomSheet caps its content at
+        // the screen height but doesn't scroll that content for you, so once the sheet was fully
+        // expanded, whatever didn't fit (increasingly likely as settings were added over time)
+        // was simply cut off at the bottom edge with no way to reach it — most visibly the newest
+        // field, 質問モードの音声トリガー, appearing "crushed" against the screen edge.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
             Text("サーバー設定")
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
@@ -793,6 +829,25 @@ private fun SettingsSheet(
             }
             Text(
                 "Webビュワーのドライバー表示用に短い要約を追加生成します（実行のたびに解析が1回増えます）。",
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+            Text("質問モードの音声トリガー")
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = settings.questionTriggerName,
+                onValueChange = onQuestionTriggerNameChanged,
+                label = { Text("名前（ひらがな/カタカナ、空欄で無効）") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "文字起こしにこの名前が現れた瞬間「質問する」が自動で開き、以降の発言が続けて質問欄に入力されます。",
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                 color = Color.Gray,
             )
