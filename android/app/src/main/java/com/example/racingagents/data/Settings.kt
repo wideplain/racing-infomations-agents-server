@@ -8,8 +8,25 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.util.UUID
 
 private val Context.settingsDataStore by preferencesDataStore(name = "settings")
+
+private val premisesJson = Json { ignoreUnknownKeys = true }
+
+/** A reusable, named premise ("応答の前提条件") the crew can prepare ahead of time — e.g. "無線は
+ * 短く簡潔に" or "タイヤ交換済み、燃料残量は気にしない" — instead of retyping context into every
+ * メモを添えて解析 note. [applied] premises are automatically folded into every analysis instruction
+ * until toggled off; unapplied ones stay saved in the list for later. */
+@Serializable
+data class Premise(
+    val id: String,
+    val text: String,
+    val applied: Boolean = true,
+)
 
 data class AppSettings(
     val serverUrl: String = "",
@@ -27,6 +44,8 @@ data class AppSettings(
     val driverSummaryEnabled: Boolean = true,
     /** "ja-JP" or "en-US" — the language passed to SpeechRecognizer for transcription. */
     val sttLanguage: String = "ja-JP",
+    /** Saved 前提条件 presets; [Premise.applied] ones are folded into every analysis instruction. */
+    val premises: List<Premise> = emptyList(),
 )
 
 /** Server URL / API key / beep-mute / auto-analysis config, persisted via DataStore preferences. */
@@ -41,6 +60,7 @@ class SettingsRepository(private val context: Context) {
         val ANALYSIS_MODE = stringPreferencesKey("analysis_mode")
         val DRIVER_SUMMARY_ENABLED = booleanPreferencesKey("driver_summary_enabled")
         val STT_LANGUAGE = stringPreferencesKey("stt_language")
+        val PREMISES = stringPreferencesKey("premises_json")
     }
 
     val settingsFlow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -67,6 +87,9 @@ class SettingsRepository(private val context: Context) {
             sttLanguage = (prefs[Keys.STT_LANGUAGE] ?: "ja-JP").let {
                 if (it == "ja-JP" || it == "en-US") it else "ja-JP"
             },
+            premises = runCatching {
+                premisesJson.decodeFromString<List<Premise>>(prefs[Keys.PREMISES] ?: "[]")
+            }.getOrDefault(emptyList()),
         )
     }
 
@@ -104,5 +127,31 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSttLanguage(lang: String) {
         context.settingsDataStore.edit { it[Keys.STT_LANGUAGE] = lang }
+    }
+
+    private fun readPremises(prefs: androidx.datastore.preferences.core.Preferences): List<Premise> =
+        runCatching { premisesJson.decodeFromString<List<Premise>>(prefs[Keys.PREMISES] ?: "[]") }
+            .getOrDefault(emptyList())
+
+    suspend fun addPremise(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return
+        context.settingsDataStore.edit { prefs ->
+            val updated = readPremises(prefs) + Premise(id = UUID.randomUUID().toString(), text = trimmed)
+            prefs[Keys.PREMISES] = premisesJson.encodeToString(updated)
+        }
+    }
+
+    suspend fun removePremise(id: String) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[Keys.PREMISES] = premisesJson.encodeToString(readPremises(prefs).filterNot { it.id == id })
+        }
+    }
+
+    suspend fun setPremiseApplied(id: String, applied: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            val updated = readPremises(prefs).map { if (it.id == id) it.copy(applied = applied) else it }
+            prefs[Keys.PREMISES] = premisesJson.encodeToString(updated)
+        }
     }
 }
