@@ -93,6 +93,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
     private var api: RacingAgentsApi? = null
     private var segmentQueue: SegmentQueue? = null
+    // The URL actually behind the current `api`/`segmentQueue`, so settings changes that don't
+    // touch it (e.g. premise add/remove/toggle, which also live in AppSettings and go through
+    // this same settingsFlow collector) don't tear down the SegmentQueue — that would orphan its
+    // in-memory pending backlog (see rebuildApiClientIfNeeded).
+    private var builtServerUrl: String? = null
     private val transcriptStore = TranscriptStore(context)
 
     // Monotonic counter for TranscriptLine.localId. Only ever touched from the main thread
@@ -174,11 +179,18 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    private fun rebuildApiClientIfNeeded(settings: AppSettings) {
+    /** [force] rebuilds even if the URL hasn't changed — used by [startNewSession], which needs a
+     * fresh SegmentQueue so its clientSeq counter restarts at 0. Without it, every settingsFlow
+     * emission (including ones unrelated to the server, like premise add/remove/toggle) would
+     * rebuild the SegmentQueue: a fresh one starts with an empty pending buffer, orphaning
+     * whatever the old one hadn't drained/acked yet, which is silently lost the next time
+     * stopListening()'s snapshotToDataStore() persists the (now current, empty-ish) queue. */
+    private fun rebuildApiClientIfNeeded(settings: AppSettings, force: Boolean = false) {
         val cleanedUrl = settings.serverUrl.trim()
             .filterNot { it == '\n' || it == '\r' || it == '*' || it == '`' || it.isWhitespace() }
         if (cleanedUrl.isBlank()) return
         val normalizedUrl = if (cleanedUrl.endsWith("/")) cleanedUrl else "$cleanedUrl/"
+        if (!force && api != null && normalizedUrl == builtServerUrl) return
         // A malformed URL (bad scheme, stray characters, mid-typing state while the user edits
         // the settings field) must never crash the app — OkHttp/Retrofit throw synchronously
         // from Retrofit.Builder.baseUrl(), so this is caught here rather than propagating out of
@@ -189,6 +201,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
             }
             .getOrNull() ?: return
         api = newApi
+        builtServerUrl = normalizedUrl
         val nextSeq = (_uiState.value.transcript.maxOfOrNull { it.clientSeq } ?: -1L) + 1
         segmentQueue = SegmentQueue(
             context = context,
@@ -330,7 +343,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
             // Rebuild so the SegmentQueue's clientSeq counter restarts at 0 alongside the now-empty
             // transcript, instead of continuing from the previous session's highest clientSeq.
-            rebuildApiClientIfNeeded(_uiState.value.settings)
+            rebuildApiClientIfNeeded(_uiState.value.settings, force = true)
             startSession()
         }
     }
@@ -379,14 +392,15 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    /** Fires a single "question" mode analysis carrying [question] as the instruction, so a pit
-     * crew member can ask the AI something and get a direct answer instead of a periodic report.
-     * Unlike [runAnalysis], this never also fires the "driver" mode run — that fan-out exists to
-     * feed the web viewer's driver HUD with short status summaries, which a one-off question
-     * answer has nothing to do with. */
+    /** Fires a single "question" mode analysis carrying [question] (with any applied 前提条件
+     * folded in ahead of it, same as [runAnalysis]) as the instruction, so a pit crew member can
+     * ask the AI something and get a direct answer instead of a periodic report. Unlike
+     * [runAnalysis], this never also fires the "driver" mode run — that fan-out exists to feed
+     * the web viewer's driver HUD with short status summaries, which a one-off question answer
+     * has nothing to do with. */
     fun askQuestion(question: String) {
         if (question.isBlank()) return
-        launchAnalysis("question", AnalysisTrigger.MANUAL, question)
+        launchAnalysis("question", AnalysisTrigger.MANUAL, mergeAppliedPremises(question))
     }
 
     /** Fires a single analyze() request in [mode] and polls it to completion, appending its own
