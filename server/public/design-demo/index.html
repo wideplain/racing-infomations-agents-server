@@ -50,6 +50,18 @@
   .screen-card p { margin: 0; color: var(--muted); font-size: .85rem; line-height: 1.65; flex: 1 1 auto; }
   .screen-card .open-note { color: var(--accent); font-size: .8rem; font-weight: 800; }
 
+  .shot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s4); }
+  .shot { margin: 0; }
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-1);
+  }
+  .shot figcaption { margin-top: 6px; color: var(--muted); font-size: .76rem; font-weight: 700; }
+
   .mapping { margin-top: var(--s6); padding: var(--s5); }
   .mapping h3 { margin: 0 0 var(--s3); font-size: 1rem; }
   .mapping table { width: 100%; border-collapse: collapse; font-size: .84rem; }
@@ -126,6 +138,19 @@
       <p>セッション一覧はカードグリッドから密度の高いリストへ。詳細は従来どおり左＝文字起こし・右＝AI解析で、エントリのマークアップはビュワーと共有。</p>
       <span class="open-note">デモを開く →</span>
     </a>
+  </section>
+
+  <section class="card" style="margin-top: var(--s6);">
+    <h3 style="margin:0 0 var(--s3); font-size:1rem;">スクリーンショット</h3>
+    <p style="margin:0 0 var(--s4); color: var(--muted); font-size:.84rem;">
+      ローカルに clone がなくても、このページか GitHub 上の <code>server/public/design-demo/screenshots/</code> で確認できます。
+    </p>
+    <div class="shot-grid">
+      <figure class="shot"><img src="./screenshots/02-viewer-pit.png" alt="ビュワー・ピット表示（1440px）" loading="lazy" /><figcaption>ビュワー — ピット表示（≥1024px）</figcaption></figure>
+      <figure class="shot"><img src="./screenshots/03-viewer-mobile.png" alt="ビュワー・モバイル（390px）" loading="lazy" /><figcaption>ビュワー — モバイル（390px）</figcaption></figure>
+      <figure class="shot"><img src="./screenshots/04-driver-iphone-se.png" alt="ドライバー表示（iPhone SE 375x667）" loading="lazy" /><figcaption>ドライバー — iPhone SE（375×667）</figcaption></figure>
+      <figure class="shot"><img src="./screenshots/05-console.png" alt="テキストテスト（セッション一覧と詳細）" loading="lazy" /><figcaption>テキストテスト — 一覧＋詳細</figcaption></figure>
+    </div>
   </section>
 
   <section class="card mapping">
