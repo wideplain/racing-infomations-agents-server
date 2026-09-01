@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>デザイン提案 - AI RACE RADIO</title>
+<link rel="stylesheet" href="/design-demo/demo.css" />
+<style>
+  /* Gallery top only: hero + screen cards. */
+  .gallery-hero { max-width: 60rem; margin: var(--s6) 0; }
+  .gallery-hero h2 {
+    margin: 0 0 var(--s3);
+    font-size: clamp(1.7rem, 4.5vw, 2.6rem);
+    font-weight: 850;
+    letter-spacing: -.04em;
+    line-height: 1.12;
+  }
+  .gallery-hero h2 em { color: var(--accent); font-style: normal; }
+  .gallery-hero p { margin: 0; max-width: 44rem; color: var(--muted); font-size: .95rem; }
+
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--s3); margin: var(--s5) 0 var(--s6); }
+  .principle { padding: var(--s4); }
+  .principle h3 { margin: 0 0 6px; font-size: .9rem; }
+  .principle h3 span { margin-right: 7px; }
+  .principle p { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.6; }
+
+  .screen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s4); }
+  .screen-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s3);
+    padding: var(--s5);
+    color: var(--text);
+    text-decoration: none;
+    transition: transform .18s, border-color .18s, box-shadow .18s;
+  }
+  .screen-card:hover { transform: translateY(-3px); border-color: var(--line-strong); box-shadow: 0 24px 48px -24px rgba(0, 0, 0, .8); }
+  .screen-card .screen-icon {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    font-size: 1.3rem;
+    background: var(--panel-raised);
+    border: 1px solid var(--line);
+  }
+  .screen-card h3 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; }
+  .screen-card .role { color: var(--faint); font-size: .68rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  .screen-card p { margin: 0; color: var(--muted); font-size: .85rem; line-height: 1.65; flex: 1 1 auto; }
+  .screen-card .open-note { color: var(--accent); font-size: .8rem; font-weight: 800; }
+
+  .mapping { margin-top: var(--s6); padding: var(--s5); }
+  .mapping h3 { margin: 0 0 var(--s3); font-size: 1rem; }
+  .mapping table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+  .mapping th, .mapping td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .mapping th { color: var(--faint); font-size: .68rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+  .mapping td:first-child { white-space: nowrap; font-weight: 700; }
+  .mapping code { font-family: var(--mono); font-size: .78rem; color: var(--driver); }
+  .mapping .kept { color: var(--muted); font-size: .78rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand-lockup">
+    <span class="brand-mark" aria-hidden="true">RR</span>
+    <div>
+      <p class="eyebrow">AI RACE RADIO / DESIGN PROPOSAL</p>
+      <h1>Web UI リデザイン提案</h1>
+    </div>
+  </div>
+  <div class="header-actions">
+    <nav class="mode-nav">
+      <a class="mode-link" href="/index.html">現行に戻る</a>
+    </nav>
+  </div>
+</header>
+
+<div class="demo-banner">⚠ これはデザイン提案の静的デモです。既存画面・API には一切手を入れていません。データはすべてモックです。</div>
+
+<main>
+  <section class="gallery-hero">
+    <h2>ピットの計器盤としての<br /><em>情報密度</em>と<em>一瞥性</em>。</h2>
+    <p>
+      現行UIの役割分担（ピット＝ビュワー／車内＝ドライバー／開発＝テキストテスト、
+      書き込み権限の分離、モード別の色づかい）はそのままに、
+      ガラス質感の階層表現・ロールごとに磨き上げたアクセント・等幅数字の計器タイポグラフィで
+      「レース中に3メートル離れても読める」UIを目指しました。
+    </p>
+  </section>
+
+  <section class="principles">
+    <div class="card principle"><h3><span>🪟</span>奥行きは透過で</h3><p>透過パネル + 背景ぼかし + ヘアライン境界で、重ねた情報の前後関係が分かる。背景にはテレメトリのグリッドを薄く敷く。</p></div>
+    <div class="card principle"><h3><span>🎨</span>1ロール1色</h3><p>橙=ピット／主操作、緑=ドライバー／安全、青=質問、ライム=進行中。緊急度は黄→赤の階段。色だけで意味が通じる。</p></div>
+    <div class="card principle"><h3><span>🔢</span>計器の文字</h3><p>動く数値はすべて等幅数字。見出しは引き締めたディスプレイ書体、ラベルは小さな大文字で階層を作る。</p></div>
+    <div class="card principle"><h3><span>📐</span>同じ文法</h3><p>どの画面も「見出し行＋本文＋操作行」の同じペイン文法。画面を移っても物の位置が変わらない。</p></div>
+  </section>
+
+  <section class="screen-grid">
+    <a class="card screen-card" href="/design-demo/viewer.html">
+      <span class="screen-icon">👁</span>
+      <div>
+        <p class="role">PIT / READ-ONLY</p>
+        <h3>ビュワー</h3>
+      </div>
+      <p>ライブ・ルート・天気を一枚のガラス盤に。幅1024px以上の「ピット表示」ではタブを廃して全カラム同時表示。ステータスバーは接続状態を光るドットで示す。</p>
+      <span class="open-note">デモを開く →</span>
+    </a>
+    <a class="card screen-card" href="/design-demo/driver.html">
+      <span class="screen-icon">🏎</span>
+      <div>
+        <p class="role">IN-CAR / GLANCE</p>
+        <h3>ドライバー</h3>
+      </div>
+      <p>速度・緊急度・見出しだけの特大表示は維持しつつ、コントラストと字間を再調整。iPhone SE でスクロールなし。要素の位置は常に固定。</p>
+      <span class="open-note">デモを開く →</span>
+    </a>
+    <a class="card screen-card" href="/design-demo/console.html">
+      <span class="screen-icon">🧪</span>
+      <div>
+        <p class="role">DEV / FULL ACCESS</p>
+        <h3>テキストテスト</h3>
+      </div>
+      <p>セッション一覧はカードグリッドから密度の高いリストへ。詳細は従来どおり左＝文字起こし・右＝AI解析で、エントリのマークアップはビュワーと共有。</p>
+      <span class="open-note">デモを開く →</span>
+    </a>
+  </section>
+
+  <section class="card mapping">
+    <h3>現行システム要件との対応</h3>
+    <table>
+      <thead>
+        <tr><th>要件</th><th>デモでの扱い</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ビュワーは閲覧専用</td>
+          <td class="kept">新ビュワーにも書き込み操作を置かない。APIキー入力はフッタの折りたたみに退避。</td>
+        </tr>
+        <tr>
+          <td>ピット表示（≥1024px）</td>
+          <td class="kept">文字起こし・解析・地図・これからの雨を1グリッドに同時表示。タブは消える。</td>
+        </tr>
+        <tr>
+          <td>ドライバー画面は一瞥性最優先</td>
+          <td class="kept">グリッドのテンプレートエリアを固定し、要素の有無で位置が動かない構造を継承。</td>
+        </tr>
+        <tr>
+          <td>解析4モードの識別</td>
+          <td class="kept"><code>pitwall</code> 橙 / <code>driver</code> 緑 / <code>question</code> 青。タイムラインの左エッジラインで示す。</td>
+        </tr>
+        <tr>
+          <td>除外行は残す</td>
+          <td class="kept">取り消し線＋半透過を維持。AIが何を読み飛ばしたか常に見える。</td>
+        </tr>
+        <tr>
+          <td>HTTPS / tailscale serve</td>
+          <td class="kept">デモも既存サーバーの静的配信に載るため、配信経路・証明書の前提は不変。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

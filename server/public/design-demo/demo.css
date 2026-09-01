@@ -1,0 +1,431 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   AI RACE RADIO — redesign demo design system (proposal)
+
+   Self-contained: the demo pages load ONLY this file plus their own optional
+   page stylesheet. The production stylesheets (style.css / index.css /
+   viewer.css / driver.css) are not touched and not loaded here.
+
+   Concept
+   ───────
+   "Pit instrument cluster". The product already behaves like motorsport
+   telemetry, so the redesign leans into it instead of generic admin UI:
+
+   1. Depth through translucency — glass panels with backdrop blur and hairline
+      borders on a layered, very dark backdrop. Replaces the flat stacked
+      gradients, keeps text contrast at the same level or better.
+   2. One accent per role — orange = pit crew / primary action, green = driver /
+      safe, blue = question, amber/red = urgency ladder. Same roles as the
+      current palette, pushed brighter and given a dedicated "lime" for live
+      state so a running session is visible from across the pit.
+   3. Type as instrumentation — tabular numerals everywhere data moves, tight
+      display weights for headlines, small-caps eyebrows for labels. Reading at
+      a glance beats reading in detail.
+   4. Density with air — a 4px spacing scale and 16px radii so panes can sit
+      closer without feeling cramped; the same pane grammar (header + body +
+      footer) on every screen so switching pages never re-arranges the world.
+
+   Layout goals (system requirements kept from the current UI):
+   - viewer: desktop "pit" view shows transcript + analysis + map + rain at
+     once without tabs; mobile keeps one-column tabs.
+   - driver: still glanceable, still one screenful on an iPhone SE, position
+     of every element constant so nothing shifts while driving.
+   - console (テキストテスト): list → detail, transcript left / analysis right,
+     same shared entry markup as the viewer so the two can't drift.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
+:root {
+  /* Backdrop layers, from deepest to closest */
+  --bg-0: #070a10;
+  --bg-1: #0b1019;
+  --bg-2: #101724;
+
+  /* Glass panels */
+  --panel: color-mix(in srgb, #141d2c 78%, transparent);
+  --panel-solid: #141d2c;
+  --panel-raised: color-mix(in srgb, #1b2637 82%, transparent);
+  --panel-inset: rgba(7, 10, 16, .55);
+  --line: rgba(148, 166, 190, .16);
+  --line-strong: rgba(148, 166, 190, .3);
+
+  /* Text */
+  --text: #f2f6fb;
+  --muted: #93a2b8;
+  --faint: #66758c;
+
+  /* Role accents */
+  --accent: #ff6a3d;          /* pit crew / primary */
+  --accent-ink: #1a0f08;      /* text on the accent */
+  --driver: #3fe0a0;          /* driver / safe */
+  --question: #6f9dff;        /* question mode */
+  --live: #b8f53d;            /* a session is running right now */
+  --warn: #ff5d6c;
+  --caution: #ffb44d;
+
+  /* Effects */
+  --glow-accent: 0 0 24px rgba(255, 106, 61, .28);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --blur: saturate(1.35) blur(18px);
+
+  /* 4px spacing scale */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
+[hidden] { display: none !important; }
+* { box-sizing: border-box; }
+
+html { color-scheme: dark; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  padding: 0 clamp(12px, 2.5vw, 28px) var(--s6);
+  background: var(--bg-0);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Layered backdrop: cool glow top-right (sky), warm glow bottom-left (pit
+   lights), and a faint telemetry grid. Painted once, fixed behind glass. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(60rem 40rem at 85% -10%, rgba(111, 157, 255, .14), transparent 60%),
+    radial-gradient(50rem 34rem at -10% 110%, rgba(255, 106, 61, .12), transparent 60%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0));
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(148, 166, 190, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 166, 190, .045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(70rem 50rem at 50% 0%, #000 30%, transparent 100%);
+}
+
+::selection { background: rgba(255, 106, 61, .35); }
+
+/* ── Header / brand ─────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s4) 0;
+}
+h1 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; }
+
+.brand-lockup { display: flex; align-items: center; gap: var(--s3); min-width: 0; flex: 1 1 auto; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), #ff9d5c);
+  color: var(--accent-ink);
+  font-weight: 900;
+  letter-spacing: -.08em;
+  box-shadow: var(--glow-accent);
+}
+.eyebrow {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.brand-lockup h1 {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s2);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* Segmented pill nav — one control, current mode filled. */
+.mode-nav {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-inset);
+  backdrop-filter: var(--blur);
+}
+.mode-link {
+  border-radius: 999px;
+  padding: 6px 13px;
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color .15s, background .15s;
+}
+.mode-link:hover { color: var(--text); }
+.mode-link.current {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--glow-accent);
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+input, textarea, select, button {
+  font: inherit;
+  font-size: .95rem;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-inset);
+  color: var(--text);
+}
+textarea { resize: vertical; }
+input::placeholder, textarea::placeholder { color: var(--faint); }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--driver);
+  outline-offset: 2px;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--line-strong); }
+
+button { font-weight: 700; cursor: pointer; transition: transform .12s, opacity .15s, background .15s, border-color .15s; }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .45; cursor: default; transform: none; }
+
+button.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent), #ff8a4d);
+  color: var(--accent-ink);
+  font-weight: 800;
+  box-shadow: var(--glow-accent);
+}
+button.primary:hover:not(:disabled) { filter: brightness(1.07); }
+button.ghost { background: var(--panel-inset); color: var(--muted); }
+button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+
+a { color: var(--driver); }
+
+/* ── Panels / cards ─────────────────────────────────────────────────────── */
+.card, .panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  backdrop-filter: var(--blur);
+  box-shadow: 0 18px 40px -22px rgba(0, 0, 0, .7);
+}
+.card { padding: var(--s4); }
+
+/* Every pane on every page shares this grammar: heading row, then content. */
+.pane-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.pane-heading h3 { margin: 0; font-size: .95rem; letter-spacing: .02em; }
+.pane-note {
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Badges / chips ─────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  white-space: nowrap;
+}
+.badge.live { color: var(--live); border-color: rgba(184, 245, 61, .4); background: rgba(184, 245, 61, .08); }
+.badge.live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 8px var(--live);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.badge.ended { color: var(--faint); }
+.badge.pitwall { color: var(--accent); border-color: rgba(255, 106, 61, .4); background: rgba(255, 106, 61, .1); }
+.badge.driver { color: var(--driver); border-color: rgba(63, 224, 160, .4); background: rgba(63, 224, 160, .08); }
+.badge.question { color: var(--question); border-color: rgba(111, 157, 255, .4); background: rgba(111, 157, 255, .1); }
+
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* ── Transcript line (shared: viewer + console) ─────────────────────────── */
+.segment-line {
+  display: flex;
+  gap: var(--s3);
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: .92rem;
+  line-height: 1.5;
+}
+.segment-line:last-child { border-bottom: 0; }
+.segment-line.excluded { opacity: .45; text-decoration: line-through; }
+.segment-time {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+  padding-top: 3px;
+}
+/* Newest line lands with a soft flash so the eye finds it without scrolling. */
+.segment-line.fresh { animation: land 1.2s ease-out; }
+@keyframes land {
+  from { background: rgba(184, 245, 61, .14); }
+  to { background: transparent; }
+}
+
+/* ── Analysis entry (shared: viewer + console) ──────────────────────────── */
+.analysis-entry {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  backdrop-filter: var(--blur);
+  padding: var(--s3) var(--s4);
+  margin-bottom: var(--s3);
+  overflow: hidden;
+}
+/* Role color carried by a hairline on the leading edge instead of a filled
+   badge background — the mode is visible without shouting. */
+.analysis-entry::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--muted);
+  opacity: .7;
+}
+.analysis-entry.mode-pitwall::before { background: var(--accent); }
+.analysis-entry.mode-driver::before { background: var(--driver); }
+.analysis-entry.mode-question::before { background: var(--question); }
+
+.analysis-entry .entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.analysis-entry .entry-time {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: .74rem;
+  font-variant-numeric: tabular-nums;
+}
+.analysis-entry h4 { margin: var(--s2) 0 2px; font-size: .92rem; }
+.analysis-entry p { margin: 2px 0; }
+.analysis-entry ul { margin: 2px 0; padding-left: 1.2em; }
+.analysis-entry .warn { color: var(--warn); }
+.analysis-entry .status-queued, .analysis-entry .status-running { color: var(--muted); }
+
+.analysis-entry .driver-headline {
+  margin: 6px 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  line-height: 1.25;
+}
+.analysis-entry .driver-action { margin: 4px 0; font-size: 1.08rem; font-weight: 650; }
+.analysis-entry .driver-watch { margin: 4px 0; color: var(--warn); font-size: 1rem; }
+.analysis-entry .driver-urgency { margin: 6px 0 0; color: var(--muted); font-size: .84rem; }
+.analysis-entry .driver-urgency.urgency-medium { color: var(--caution); }
+.analysis-entry .driver-urgency.urgency-high { color: var(--warn); font-weight: 700; }
+
+/* ── Urgency ladder, shared everywhere ──────────────────────────────────── */
+.urgency-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(63, 224, 160, .4);
+  background: rgba(63, 224, 160, .08);
+  color: var(--driver);
+  font-size: .8rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.urgency-pill.medium { color: var(--caution); border-color: rgba(255, 180, 77, .4); background: rgba(255, 180, 77, .08); }
+.urgency-pill.high { color: var(--warn); border-color: rgba(255, 93, 108, .45); background: rgba(255, 93, 108, .1); }
+
+/* ── Demo-only helpers ──────────────────────────────────────────────────── */
+/* Banner marking these pages as a design proposal, not production. */
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+  padding: var(--s2) var(--s4);
+  border: 1px dashed rgba(255, 180, 77, .5);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 180, 77, .07);
+  color: var(--caution);
+  font-size: .78rem;
+  font-weight: 700;
+}
+.demo-banner a { color: var(--caution); }
+
+/* Static sparkline / map stand-ins used by the demo pages. */
+.demo-map {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(28rem 20rem at 70% 20%, rgba(111, 157, 255, .1), transparent 65%),
+    var(--panel-inset);
+}
+.demo-map svg { display: block; width: 100%; height: 100%; }
+
+@media (max-width: 700px) {
+  body { font-size: 14px; }
+  header { gap: var(--s2); padding: var(--s3) 0; }
+  .brand-mark { width: 34px; height: 34px; font-size: .88rem; }
+  .brand-lockup h1 { font-size: 1rem; }
+  .mode-link { padding: 5px 10px; font-size: .76rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

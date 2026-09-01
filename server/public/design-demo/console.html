@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>テキストテスト（新デザイン提案）</title>
+<link rel="stylesheet" href="/design-demo/demo.css" />
+<style>
+  .section-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--s3); margin: var(--s2) 0 var(--s4); }
+  .section-heading h2 { margin: 0; font-size: 1.25rem; letter-spacing: -.015em; }
+  .section-actions { display: flex; gap: var(--s2); }
+
+  /* ── Session list: denser rows than the current card grid — choosing a
+     session is scanning, and scanning wants rows. ── */
+  .list-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
+  #sessionSearch { flex: 1 1 220px; min-width: 0; }
+  .filter-chips { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-inset); }
+  .chip { border: 0; background: transparent; border-radius: 999px; padding: 5px 12px; color: var(--muted); font-size: .8rem; }
+  .chip.active { background: var(--accent); color: var(--accent-ink); font-weight: 800; }
+
+  .session-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+  .session-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px var(--s4);
+    padding: var(--s3) var(--s4);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .session-row:hover { border-color: var(--line-strong); }
+  .session-row.is-live { box-shadow: inset 3px 0 0 var(--live); }
+  .session-name { display: flex; align-items: center; gap: var(--s2); min-width: 0; font-weight: 750; }
+  .session-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; color: var(--muted); font-size: .74rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .session-id { color: var(--faint); font-family: var(--mono); font-size: .66rem; }
+  .session-links { grid-row: 1 / span 3; grid-column: 2; display: flex; gap: 6px; }
+  .empty-note { margin: var(--s4) 0; color: var(--muted); }
+
+  /* ── Detail: transcript left / analysis right, same split as the viewer ── */
+  .detail-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
+  .detail-title { flex: 1 1 200px; min-width: 0; }
+  .detail-title h2 { margin: 0; font-size: 1.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-meta { display: flex; gap: 10px; margin: 2px 0 0; color: var(--muted); font-size: .74rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .detail-id { color: var(--faint); font-family: var(--mono); font-weight: 400; }
+  .detail-actions { display: flex; align-items: center; gap: 6px; }
+
+  .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s3); align-items: start; }
+  .pane { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+  .segments, .analyses {
+    min-height: 140px;
+    max-height: 48vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius-sm);
+  }
+  .segments { padding: var(--s2) var(--s3); background: var(--panel-inset); border: 1px solid var(--line); }
+  .segment-form { display: flex; gap: var(--s2); align-items: stretch; }
+  .segment-form textarea { flex: 1 1 auto; min-width: 0; }
+
+  .analyze-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s2); padding: var(--s3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-inset); }
+  .field { display: grid; gap: 3px; color: var(--muted); font-size: .7rem; font-weight: 750; letter-spacing: .04em; }
+  .field.checkbox { display: flex; align-items: center; gap: 6px; align-self: center; white-space: nowrap; }
+  .field.checkbox input { width: 15px; height: 15px; padding: 0; accent-color: var(--driver); }
+  #analyzeInstruction { flex: 1 1 180px; min-width: 0; }
+
+  @media (max-width: 760px) {
+    .detail-grid { grid-template-columns: minmax(0, 1fr); }
+    .segments, .analyses { max-height: 44vh; }
+    .segment-form { flex-direction: column; }
+    .analyze-controls { flex-direction: column; align-items: stretch; }
+    .analyze-controls > * { width: 100%; }
+    #analyzeInstruction { flex: 0 0 auto; }
+    .session-row { grid-template-columns: minmax(0, 1fr); }
+    .session-links { grid-column: 1; grid-row: auto; margin-top: 4px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand-lockup">
+    <span class="brand-mark" aria-hidden="true">RR</span>
+    <div>
+      <p class="eyebrow">AI RACE RADIO / TEXT TEST</p>
+      <h1>テキストテスト</h1>
+    </div>
+  </div>
+  <div class="header-actions">
+    <nav class="mode-nav">
+      <a class="mode-link" href="/design-demo/index.html">🎨 提案トップ</a>
+      <a class="mode-link" href="/design-demo/viewer.html">👁 ビュワー</a>
+      <a class="mode-link" href="/design-demo/driver.html">🏎 ドライバー</a>
+    </nav>
+    <details class="apikey-details" style="min-width:0;">
+      <summary style="cursor:pointer; color:var(--faint); font-size:.8rem; list-style:none;">🔒 API Key</summary>
+      <input type="password" placeholder="X-Api-Key（不要な場合は空欄）" style="margin-top:6px; width:min(100%,300px);" />
+    </details>
+  </div>
+</header>
+
+<div class="demo-banner">⚠ 新デザイン提案デモ — ボタンは実際には動作せず、データはモックです。</div>
+
+<main>
+  <!-- Screen 1: session list -->
+  <section id="sessionListSection">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">SESSIONS</p>
+        <h2>セッション一覧</h2>
+      </div>
+      <div class="section-actions">
+        <button type="button" class="ghost">↻ 更新</button>
+        <button type="button" class="primary">＋ 新規セッション</button>
+      </div>
+    </div>
+
+    <div class="list-toolbar">
+      <input id="sessionSearch" type="search" placeholder="セッション名 / ID で絞り込み" />
+      <div class="filter-chips" role="group" aria-label="表示するセッション">
+        <button type="button" class="chip active">すべて</button>
+        <button type="button" class="chip">進行中</button>
+        <button type="button" class="chip">終了</button>
+      </div>
+    </div>
+
+    <ul class="session-list">
+      <li class="card session-row is-live">
+        <span class="session-name"><span class="badge live">LIVE</span><span>予選2回目 フリー走行</span></span>
+        <span class="session-stats"><span>開始 13:02</span><span>発話 128</span><span>解析 12</span><span>最終 14:32</span></span>
+        <span class="session-id">ses_01JZR4K9M2QX7T4W8V6N3PB1HC</span>
+        <span class="session-links">
+          <a class="mode-link" href="/design-demo/viewer.html">👁</a>
+          <a class="mode-link" href="/design-demo/driver.html">🏎</a>
+        </span>
+      </li>
+      <li class="card session-row">
+        <span class="session-name"><span class="badge ended">終了</span><span>決勝レース 本番</span></span>
+        <span class="session-stats"><span>開始 8/30 09:55</span><span>発話 402</span><span>解析 31</span><span>終了 12:41</span></span>
+        <span class="session-id">ses_01JZPK0W8NYA5RD3G2MF7VQ9XE</span>
+        <span class="session-links"><a class="mode-link" href="/design-demo/viewer.html">👁</a></span>
+      </li>
+      <li class="card session-row">
+        <span class="session-name"><span class="badge ended">終了</span><span>テスト: 雨想定の作戦確認</span></span>
+        <span class="session-stats"><span>開始 8/24 14:00</span><span>発話 36</span><span>解析 5</span><span>終了 14:22</span></span>
+        <span class="session-id">ses_01JZN8T2C4HB6YF0K9ES3WM7JD</span>
+        <span class="session-links"><a class="mode-link" href="/design-demo/viewer.html">👁</a></span>
+      </li>
+    </ul>
+  </section>
+
+  <!-- Screen 2: session detail (shown directly in this demo so both screens can
+       be reviewed without a server) -->
+  <section id="sessionDetailSection" style="margin-top: var(--s6);">
+    <div class="detail-heading">
+      <button type="button" class="ghost">← 一覧</button>
+      <div class="detail-title">
+        <h2>予選2回目 フリー走行</h2>
+        <p class="detail-meta">
+          <span>開始 13:02 · 進行中</span>
+          <span class="detail-id">ses_01JZR4K9M2QX7T4W8V6N3PB1HC</span>
+        </p>
+      </div>
+      <div class="detail-actions">
+        <a class="mode-link" href="/design-demo/viewer.html">👁 ビュワー</a>
+        <a class="mode-link" href="/design-demo/driver.html">🏎 ドライバー</a>
+        <button type="button" class="ghost">■ 終了</button>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <section class="card pane">
+        <div class="pane-heading">
+          <h3>文字起こし</h3>
+          <span class="pane-note">128 行</span>
+        </div>
+        <div class="segments">
+          <div class="segment-line"><span class="segment-time">14:29:48</span><span>西の空、雲が厚くなってきた。レーダーでは30分後くらいにパラつくかも</span></div>
+          <div class="segment-line"><span class="segment-time">14:30:11</span><span>燃費はターゲットより0.3周分余裕あり</span></div>
+          <div class="segment-line excluded"><span class="segment-time">14:30:34</span><span>（雑談・解析除外）</span></div>
+          <div class="segment-line"><span class="segment-time">14:31:20</span><span>次のスティントはソフトで行くかミディアムで粘るか、雨の確率次第だな</span></div>
+          <div class="segment-line fresh"><span class="segment-time">14:32:07</span><span>気象庁の降水確率、14時台が40%に上がった</span></div>
+        </div>
+        <form class="segment-form" onsubmit="return false;">
+          <textarea rows="2" placeholder="テキストを入力して送信（Android アプリの代わりに投入）&#10;⌘/Ctrl + Enter で送信・改行は1行=1発話として分割"></textarea>
+          <button type="submit" class="primary">送信</button>
+        </form>
+      </section>
+
+      <section class="card pane">
+        <div class="pane-heading">
+          <h3>AI解析</h3>
+          <span class="pane-note">待機中</span>
+        </div>
+        <div class="analyze-controls">
+          <label class="field">モード
+            <select>
+              <option>通常</option>
+              <option selected>ピットウォール</option>
+              <option>ドライバー</option>
+              <option>質問応答</option>
+            </select>
+          </label>
+          <label class="field checkbox"><input type="checkbox" checked /> ドライバー要約も同時生成</label>
+          <input id="analyzeInstruction" type="text" placeholder="追加指示（任意）" />
+          <button type="button" class="primary">解析を実行</button>
+        </div>
+        <div class="analyses">
+          <article class="analysis-entry mode-pitwall">
+            <div class="entry-head">
+              <span class="entry-time">14:31:10</span>
+              <span class="badge pitwall">PITWALL</span>
+            </div>
+            <h4>事実</h4>
+            <ul>
+              <li>14時台の降水確率が 20% → 40% に更新</li>
+              <li>後続ギャップ 2.4秒、トラフィックなし</li>
+            </ul>
+            <h4>変化</h4>
+            <p>雨のリスクが「様子見」から「作戦に影響」レベルへ上昇。</p>
+            <h4>確認したいこと</h4>
+            <p>ソフト交換の判断期限をどこに置くか。</p>
+            <h4>軽い提案</h4>
+            <p class="warn">判断期限を14:45に設定し、それまで雲の動きを監視。</p>
+          </article>
+          <article class="analysis-entry mode-driver">
+            <div class="entry-head">
+              <span class="entry-time">14:31:55</span>
+              <span class="badge driver">DRIVER</span>
+            </div>
+            <p class="driver-headline">雨はまだ先。このままプッシュ。</p>
+            <p class="driver-action">▶ 現状のペースを維持</p>
+            <p class="driver-urgency urgency-medium">緊急度: 中</p>
+          </article>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+</body>
+</html>

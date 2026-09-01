@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ビュワー（新デザイン提案）</title>
+<link rel="stylesheet" href="/design-demo/demo.css" />
+<style>
+  /* Viewer demo layout. Fills the viewport on desktop; the page scrolls on
+     mobile, matching the current viewer's contract. */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; padding-bottom: 0; }
+  main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+  /* ── Status bar: a thin glass strip with a live connection dot ── */
+  .status-bar {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    margin-bottom: var(--s3);
+    padding: 7px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel-inset);
+    backdrop-filter: var(--blur);
+    font-size: .72rem;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .status-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 8px var(--live); animation: pulse 1.6s ease-in-out infinite; }
+  .status-item.strong { color: var(--text); }
+
+  /* ── View tabs ── */
+  .view-tabs { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-inset); backdrop-filter: var(--blur); }
+  .view-tab { border: 0; background: transparent; color: var(--muted); border-radius: 999px; padding: 6px 13px; font-size: .82rem; font-weight: 700; white-space: nowrap; }
+  .view-tab.active { background: var(--accent); color: var(--accent-ink); box-shadow: var(--glow-accent); }
+  #hudToggle { background: var(--driver); border-color: transparent; color: #06251a; font-weight: 800; box-shadow: 0 0 18px rgba(63, 224, 160, .3); white-space: nowrap; }
+
+  .screen { flex: 1 1 auto; min-height: 0; }
+
+  /* ── Live screen: transcript | analysis ── */
+  #viewerSection {
+    display: grid;
+    gap: var(--s3);
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-rows: minmax(0, 1fr);
+    height: 100%;
+  }
+  .live-pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: var(--s3) var(--s4); }
+  .live-pane .pane-heading { flex: 0 0 auto; padding-bottom: var(--s2); border-bottom: 1px solid var(--line); }
+  .live-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-top: var(--s2);
+  }
+  .latest-button {
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--live);
+    color: #16200a;
+    font-size: .72rem;
+    font-weight: 800;
+  }
+
+  /* ── Route screen ── */
+  #routeSection { display: flex; flex-direction: column; gap: var(--s3); height: 100%; }
+  #map { flex: 1 1 auto; min-height: 220px; }
+  .route-controls {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s3);
+    padding: var(--s2) var(--s4);
+  }
+  .route-playback { display: flex; align-items: center; gap: var(--s2); }
+  .route-time-label { color: var(--muted); font-family: var(--mono); font-size: .8rem; }
+  #routeSlider { flex: 1 1 200px; accent-color: var(--accent); }
+  .route-lists { flex: 0 1 auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); min-height: 0; max-height: 30vh; }
+  .route-list { overflow-y: auto; padding: var(--s2) var(--s4); }
+  .route-row { display: flex; gap: var(--s3); padding: 5px 0; border-bottom: 1px solid var(--line); font-size: .86rem; }
+  .route-row:last-child { border-bottom: 0; }
+  .route-row time { color: var(--faint); font-family: var(--mono); font-size: .74rem; padding-top: 2px; }
+  .route-row.active { color: var(--accent); font-weight: 700; }
+
+  /* ── Weather screen ── */
+  #weatherSection { display: flex; flex-direction: column; gap: var(--s3); height: 100%; overflow-y: auto; }
+  .weather-heading { display: flex; align-items: end; justify-content: space-between; gap: var(--s3); }
+  .weather-heading h2 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; }
+  .weather-heading > span { color: var(--muted); font-size: .72rem; }
+  .weather-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s2); }
+  .weather-cell {
+    padding: var(--s3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--panel);
+    backdrop-filter: var(--blur);
+  }
+  .weather-cell.raining { border-color: rgba(255, 106, 61, .5); box-shadow: inset 3px 0 0 var(--accent); }
+  .weather-cell time { display: block; color: var(--faint); font-family: var(--mono); font-size: .7rem; }
+  .weather-cell strong { display: block; margin: 4px 0 2px; font-size: 1.25rem; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .weather-cell small { color: var(--muted); font-size: .72rem; }
+  .weather-cell .pop-high { color: var(--warn); }
+  .weather-cell .pop-med { color: var(--caution); }
+
+  /* ── Pit layout ≥1024px: tabs disappear, everything on one board ──
+     transcript | analyses | (map over rain)  — same information set as the
+     current pit view. */
+  @media (min-width: 1024px) {
+    .view-tabs { display: none; }
+    #viewerSection, #routeSection, #weatherSection { display: flex; }
+    #routeSection, #weatherSection { height: auto; }
+    .pit-board {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      gap: var(--s3);
+      grid-template-columns: minmax(0, 4fr) minmax(0, 5fr) minmax(0, 4fr);
+      grid-template-rows: minmax(0, 1fr);
+      grid-template-areas: "segments analyses route";
+    }
+    .pit-board > #viewerSection { display: contents; }
+    #segmentsPane { grid-area: segments; }
+    #analysesPane { grid-area: analyses; }
+    .pit-right { grid-area: route; display: flex; flex-direction: column; gap: var(--s3); min-height: 0; }
+    .pit-right > #routeSection { flex: 1 1 55%; min-height: 0; }
+    .pit-right > #weatherSection { flex: 1 1 45%; min-height: 0; overflow-y: auto; }
+    .pit-right .weather-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .route-lists { max-height: none; }
+  }
+
+  @media (max-width: 1023px) {
+    .pit-right { display: contents; }
+  }
+  @media (max-width: 700px) {
+    html, body { height: auto; }
+    body { display: block; padding-bottom: var(--s5); }
+    main { display: block; }
+    .screen { min-height: 0; height: auto; }
+    #viewerSection { display: block; }
+    .live-pane { margin-bottom: var(--s3); }
+    .live-scroll { max-height: 56vh; }
+    .route-lists { grid-template-columns: 1fr; max-height: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand-lockup">
+    <span class="brand-mark" aria-hidden="true">RR</span>
+    <div>
+      <p class="eyebrow">AI RACE RADIO / LIVE</p>
+      <h1 id="pageTitle">ビュワー</h1>
+    </div>
+  </div>
+  <div class="header-actions">
+    <nav class="view-tabs" role="tablist">
+      <button id="tabLive" type="button" class="view-tab active" role="tab" aria-selected="true">ライブ</button>
+      <button id="tabRoute" type="button" class="view-tab" role="tab" aria-selected="false">ルート・時間</button>
+      <button id="tabWeather" type="button" class="view-tab" role="tab" aria-selected="false">天気</button>
+    </nav>
+    <button id="hudToggle" type="button">🏎 ドライバー表示</button>
+    <nav class="mode-nav">
+      <a class="mode-link" href="/design-demo/index.html">🎨 提案トップ</a>
+      <a class="mode-link" href="/design-demo/console.html">🧪 テキストテスト</a>
+    </nav>
+  </div>
+</header>
+
+<div class="demo-banner">⚠ 新デザイン提案デモ — 表示データはモックです（読み取り専用の画面設計は現行どおり）。</div>
+
+<div id="statusBar" class="status-bar">
+  <span class="status-item strong">予選2回目 フリー走行</span>
+  <span class="status-item"><span class="conn-dot"></span>接続中</span>
+  <span class="status-item">発話 128</span>
+  <span class="status-item">解析 12</span>
+  <span class="status-item">更新 14:32:07</span>
+</div>
+
+<main>
+  <div class="pit-board">
+    <!-- Live screen -->
+    <section id="viewerSection" class="screen">
+      <div id="segmentsPane" class="card live-pane">
+        <div class="pane-heading">
+          <h3>文字起こし</h3>
+          <button class="latest-button" type="button">最新へ移動</button>
+        </div>
+        <div id="segments" class="live-scroll">
+          <div class="segment-line"><span class="segment-time">14:28:41</span><span>路面の温度が思ったより上がっていないみたい</span></div>
+          <div class="segment-line"><span class="segment-time">14:29:02</span><span>9番は今アウトラップ。タイムは関係ない</span></div>
+          <div class="segment-line excluded"><span class="segment-time">14:29:15</span><span>（雑談・解析除外）</span></div>
+          <div class="segment-line"><span class="segment-time">14:29:48</span><span>西の空、雲が厚くなってきた。レーダーでは30分後くらいにパラつくかも</span></div>
+          <div class="segment-line"><span class="segment-time">14:30:11</span><span>燃費はターゲットより0.3周分余裕あり</span></div>
+          <div class="segment-line"><span class="segment-time">14:30:52</span><span>後続とのギャップは2.4秒。トラフィックは今のところクリーン</span></div>
+          <div class="segment-line"><span class="segment-time">14:31:20</span><span>次のスティントはソフトで行くかミディアムで粘るか、雨の確率次第だな</span></div>
+          <div class="segment-line fresh"><span class="segment-time">14:32:07</span><span>気象庁の降水確率、14時台が40%に上がった</span></div>
+        </div>
+      </div>
+
+      <div id="analysesPane" class="card live-pane">
+        <div class="pane-heading">
+          <h3>AI解析タイムライン</h3>
+          <span class="pane-note">12 件</span>
+        </div>
+        <div id="analyses" class="live-scroll">
+          <article class="analysis-entry mode-driver">
+            <div class="entry-head">
+              <span class="entry-time">14:31:55</span>
+              <span class="badge driver">DRIVER</span>
+            </div>
+            <p class="driver-headline">雨はまだ先。このままプッシュ。</p>
+            <p class="driver-action">▶ 現状のペースを維持</p>
+            <p class="driver-watch">⚠ 14時台の降水確率が上昇中</p>
+            <p class="driver-urgency urgency-medium">緊急度: 中 · 14:31:55 生成</p>
+          </article>
+
+          <article class="analysis-entry mode-pitwall">
+            <div class="entry-head">
+              <span class="entry-time">14:31:10</span>
+              <span class="badge pitwall">PITWALL</span>
+            </div>
+            <h4>事実</h4>
+            <ul>
+              <li>14時台の降水確率が 20% → 40% に更新</li>
+              <li>後続ギャップ 2.4秒、トラフィックなし</li>
+            </ul>
+            <h4>変化</h4>
+            <p>雨のリスクが「様子見」から「作戦に影響」レベルへ上昇。</p>
+            <h4>確認したいこと</h4>
+            <p>ソフト交換の判断期限をどこに置くか。予報では15時台は再び20%に低下。</p>
+            <h4>軽い提案</h4>
+            <p class="warn">判断期限を14:45に設定し、それまで実況の雲の動きを監視。</p>
+          </article>
+
+          <article class="analysis-entry mode-question">
+            <div class="entry-head">
+              <span class="entry-time">14:26:03</span>
+              <span class="badge question">QUESTION</span>
+            </div>
+            <h4>Q. 前回のスティントの平均ペースは？</h4>
+            <p>記録にある発言からは 1'42.3 前後と読み取れます（14:12:40「42.3 で安定してきた」に基づく）。</p>
+            <p class="warn">公式計測ではないため誤差を含みます。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <div class="pit-right">
+      <!-- Route screen -->
+      <section id="routeSection" class="screen" hidden>
+        <div id="map" class="demo-map" aria-label="ルート地図（モック）">
+          <svg viewBox="0 0 400 240" role="img" aria-hidden="true">
+            <path d="M30,190 C80,120 60,60 150,50 S300,40 340,90 S380,190 300,200 S120,230 30,190 Z"
+                  fill="none" stroke="rgba(148,166,190,.25)" stroke-width="10" stroke-linecap="round"/>
+            <path d="M30,190 C80,120 60,60 150,50 S300,40 340,90"
+                  fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="340" cy="90" r="7" fill="var(--live)"/>
+            <circle cx="340" cy="90" r="12" fill="none" stroke="var(--live)" opacity=".4"/>
+            <text x="20" y="226" fill="#66758c" font-size="11" font-family="monospace">MOCK MAP — maplibre-gl in production</text>
+          </svg>
+        </div>
+        <div class="card route-controls">
+          <div class="route-playback">
+            <button type="button" class="primary">▶ 再生</button>
+            <select><option>1x</option><option>10x</option><option selected>60x</option></select>
+            <span class="route-time-label">14:32:07 / 15:41:52</span>
+          </div>
+          <input id="routeSlider" type="range" min="0" max="100" value="68" />
+        </div>
+        <div class="route-lists">
+          <div class="card route-list">
+            <div class="route-row"><time>14:05</time><span>チェッカー付近通過 — 1'42.310</span></div>
+            <div class="route-row active"><time>14:18</time><span>ヘアピン立ち上がり — 1'41.982</span></div>
+            <div class="route-row"><time>14:29</time><span>最終コーナー — 1'42.455</span></div>
+          </div>
+          <div class="card route-list">
+            <div class="route-row"><time>14:02</time><span>〇〇市 △△町付近</span></div>
+            <div class="route-row"><time>14:11</time><span>××インター付近</span></div>
+            <div class="route-row"><time>14:24</time><span>□□サービスエリア付近</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Weather screen -->
+      <section id="weatherSection" class="screen" hidden>
+        <div class="weather-heading">
+          <div>
+            <p class="eyebrow">RAIN FORECAST</p>
+            <h2>これからの天気</h2>
+          </div>
+          <span>現在地 · 気象庁</span>
+        </div>
+        <div class="weather-grid">
+          <div class="weather-cell"><time>14:05</time><strong>0.0<span style="font-size:.7em"> mm</span></strong><small>☀ 弱い日差し · 26°</small></div>
+          <div class="weather-cell"><time>14:10</time><strong>0.0<span style="font-size:.7em"> mm</span></strong><small>🌥 曇り · 26°</small></div>
+          <div class="weather-cell"><time>14:15</time><strong>0.0<span style="font-size:.7em"> mm</span></strong><small class="pop-med">🌧 20%</small></div>
+          <div class="weather-cell raining"><time>14:35</time><strong>0.4<span style="font-size:.7em"> mm</span></strong><small class="pop-high">🌧 40% · にわか雨</small></div>
+          <div class="weather-cell"><time>15:00</time><strong>0.0<span style="font-size:.7em"> mm</span></strong><small class="pop-med">🌧 20% · 回復</small></div>
+          <div class="weather-cell"><time>15:30</time><strong>0.0<span style="font-size:.7em"> mm</span></strong><small>🌥 曇り · 25°</small></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer style="flex:0 0 auto; padding: var(--s3) 0 max(var(--s2), env(safe-area-inset-bottom));">
+  <details>
+    <summary style="cursor:pointer; color: var(--faint); font-size:.78rem; list-style:none;">🔒 API Key</summary>
+    <input type="password" placeholder="X-Api-Key（不要な場合は空欄）" style="margin-top:6px; width: min(100%, 330px);" />
+  </details>
+</footer>
+
+<script>
+  // Demo-only: tab switching on sub-1024px widths. No API calls are made.
+  const tabs = { tabLive: 'viewerSection', tabRoute: 'routeSection', tabWeather: 'weatherSection' };
+  const mq = window.matchMedia('(min-width: 1024px)');
+  function applyTab(id) {
+    if (mq.matches) return; // pit board shows everything
+    for (const [tabId, sectionId] of Object.entries(tabs)) {
+      document.getElementById(tabId).classList.toggle('active', tabId === id);
+      document.getElementById(tabId).setAttribute('aria-selected', tabId === id);
+      document.getElementById(sectionId).hidden = tabId !== id;
+    }
+  }
+  for (const tabId of Object.keys(tabs)) {
+    document.getElementById(tabId).addEventListener('click', () => applyTab(tabId));
+  }
+  function syncForWidth() {
+    if (mq.matches) {
+      for (const sectionId of Object.values(tabs)) document.getElementById(sectionId).hidden = false;
+    } else {
+      const active = document.querySelector('.view-tab.active').id;
+      applyTab(active);
+    }
+  }
+  mq.addEventListener('change', syncForWidth);
+  syncForWidth();
+</script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>ドライバー表示（新デザイン提案）</title>
+<link rel="stylesheet" href="/design-demo/demo.css" />
+<style>
+  /* Driver demo. Same contract as production driver.css: one screenful on an
+     iPhone SE (375x667), no scrolling, fixed template areas so nothing moves
+     when optional rows appear. */
+  body { padding: max(var(--s2), env(safe-area-inset-top)) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 40px; padding: var(--s1) var(--s3); }
+  .topbar-actions { display: flex; align-items: center; gap: var(--s2); }
+  .conn-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--live); box-shadow: 0 0 10px var(--live); animation: pulse 1.6s ease-in-out infinite; }
+  .icon-link { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); text-decoration: none; }
+
+  .driver-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    grid-template-areas: "head" "headline" "action" "weather" "meta";
+    align-content: start;
+    gap: clamp(var(--s3), 2.5vh, var(--s5));
+    margin: var(--s2);
+    padding: clamp(14px, 4vw, 26px);
+  }
+
+  .panel-heading { grid-area: head; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s3); }
+  .speed strong {
+    color: var(--driver);
+    font-size: clamp(2.6rem, 11vw, 4.6rem);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.05em;
+    line-height: .95;
+    text-shadow: 0 0 22px rgba(63, 224, 160, .35);
+    white-space: nowrap;
+  }
+  .speed small { display: block; color: var(--faint); font-size: .68rem; font-weight: 700; letter-spacing: .08em; }
+  .urgency-pill { font-size: clamp(.85rem, 3.6vw, 1.05rem); }
+
+  .headline {
+    grid-area: headline;
+    margin: 0;
+    font-size: clamp(2.7rem, 13vw, 5.6rem);
+    font-weight: 850;
+    letter-spacing: -.05em;
+    line-height: 1.08;
+  }
+  .action {
+    grid-area: action;
+    margin: 0;
+    padding: var(--s3) var(--s4);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 106, 61, .1);
+    border-left: 4px solid var(--accent);
+    font-size: clamp(1.4rem, 6.8vw, 2.4rem);
+    font-weight: 750;
+    line-height: 1.25;
+  }
+  .watch { margin: 6px 0 0; color: var(--caution); font-size: clamp(1.05rem, 4.8vw, 1.6rem); font-weight: 750; }
+
+  .weather { grid-area: weather; align-self: end; padding-top: var(--s4); border-top: 1px solid var(--line); }
+  .weather-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s2); }
+  .wcell {
+    grid-column: span 2;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 3px;
+    min-height: 60px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel-inset);
+  }
+  .wcell.wide { grid-column: span 3; }
+  .wcell span { color: var(--muted); font-size: clamp(.6rem, 2.6vw, .78rem); font-weight: 800; white-space: nowrap; }
+  .wcell strong { font-size: clamp(1.4rem, 6vw, 2.2rem); font-variant-numeric: tabular-nums; letter-spacing: -.03em; line-height: 1; }
+  .wcell.rain strong { color: var(--caution); }
+  .wcell.pop strong { color: var(--warn); }
+  .forecast { grid-column: 1 / -1; margin: 2px 0 0; color: var(--caution); font-size: clamp(.95rem, 4vw, 1.2rem); font-weight: 800; }
+
+  .meta { grid-area: meta; margin: 0; color: var(--faint); font-size: clamp(.82rem, 3.6vw, 1rem); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-lockup">
+      <span class="brand-mark" aria-hidden="true">RR</span>
+      <div>
+        <p class="eyebrow">AI RACE RADIO / LIVE</p>
+        <h1>DRIVER</h1>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="conn-dot" role="status" aria-label="接続中" title="接続中"></span>
+      <a class="icon-link" href="/design-demo/viewer.html" aria-label="通常表示に戻る">↗</a>
+    </div>
+  </header>
+
+  <main class="card driver-main">
+    <div class="panel-heading">
+      <div class="speed">
+        <strong>142 km/h</strong>
+        <small>GPS · この端末から送信</small>
+      </div>
+      <p class="urgency-pill medium">緊急度: 中</p>
+    </div>
+
+    <p class="headline">雨はまだ先。このままプッシュ。</p>
+
+    <div>
+      <p class="action">▶ 現状のペースを維持</p>
+      <p class="watch">⚠ 14時台の降水確率が上昇中 — 40%</p>
+    </div>
+
+    <section class="weather" aria-label="現在地点の天気">
+      <div class="weather-grid">
+        <div class="wcell wide rain"><span>いま</span><strong>0.0mm</strong></div>
+        <div class="wcell wide pop"><span>🌧 確率</span><strong>40%</strong></div>
+        <div class="wcell"><span>🌡 気温</span><strong>26°</strong></div>
+        <div class="wcell"><span>💧 湿度</span><strong>71%</strong></div>
+        <div class="wcell"><span>🌬 風 m/s</span><strong>3.2</strong></div>
+        <p class="forecast">14:35ごろ にわか雨の可能性 — 15時台は回復</p>
+      </div>
+    </section>
+
+    <p class="meta">14:31:55 生成 · ドライバーモード · 新デザイン提案デモ</p>
+  </main>
+</body>
+</html>
